@@ -71,6 +71,22 @@ func TestTranscriptGolden(t *testing.T) {
 	}
 }
 
+// Mid-flight: a running card with its spinner, a status line, and the
+// reply arriving under it — including a code fence that is still open.
+func TestStreamingGolden(t *testing.T) {
+	m := plain(t, 100, 30, Options{Name: "mote", Model: "fake-1", Conversation: "demo-1"})
+	step(m, kmsg("h"), kmsg("i"), kmsg("enter"))
+	m.inflight = true
+	step(m, events(
+		agent.Call("c1", "read_file", `{"path":"README.md","limit":200}`),
+		agent.Result("c1", "# mote\n\nA small agent harness.", 420*time.Millisecond, 0.0003),
+		agent.Call("c2", "grep", `{"pattern":"func Send","glob":"**/*.go"}`),
+		agent.Delta("Here is what I found so far:\n\n```go\nfunc Send("),
+		agent.Status("searching"),
+	)...)
+	golden(t, "streaming.txt", m.transcript())
+}
+
 // An expanded card shows the arguments and a window on the result.
 func TestExpandedCardGolden(t *testing.T) {
 	m := withScene(t, 100, 40, Options{Name: "mote", Model: "fake-1", Conversation: "demo-1"})

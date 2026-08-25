@@ -77,7 +77,7 @@ func New(a agent.Agent, opts Options) *Model {
 		st:           st,
 		md:           newMarkdown(opts.Palette.Markdown, opts.Renderer.ColorProfile()),
 		conversation: opts.Conversation,
-		vp:           viewport.New(80, 20),
+		vp:           viewport.New(0, 0),
 		follow:       true,
 		in:           newInput(st, opts.Placeholder),
 		focus:        -1,
@@ -306,12 +306,13 @@ func (m *Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "pgup", "pgdown", "ctrl+u", "ctrl+b", "ctrl+f":
+	case "pgup", "pgdown":
 		// A focused, open card takes these for its own result; the
-		// transcript gets them otherwise.
+		// transcript gets them otherwise. Nothing else is taken from
+		// the input: ctrl+u, ctrl+f and the rest still edit the line.
 		if e := m.focused(); e != nil && e.expanded && !e.running {
 			step := resultLines
-			if msg.String() == "pgup" || msg.String() == "ctrl+u" || msg.String() == "ctrl+b" {
+			if msg.String() == "pgup" {
 				step = -step
 			}
 			e.offset = clamp(e.offset+step, 0, max(0, e.resultHeight()-resultLines))
@@ -350,7 +351,9 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.add(&entry{kind: entryUser, text: text})
-	return m, m.send(text)
+	cmd := m.send(text)
+	m.refresh()
+	return m, cmd
 }
 
 // run dispatches a slash command. /help is the terminal's own unless
@@ -602,11 +605,14 @@ func (m *Model) layout() {
 	chrome := 1 /*rule*/ + m.in.height() + 1 /*status*/ + len(m.renderSuggestions(m.width))
 	h := max(m.height-chrome, 3)
 	w := max(m.width-m.sideWidth(), 20)
+	m.in.ta.SetWidth(max(m.width-2, 20))
+	if m.vp.Width == w && m.vp.Height == h {
+		return // typing does not move anything; do not redraw the transcript
+	}
 	if m.vp.Width != w {
 		m.resetStable()
 	}
 	m.vp.Width, m.vp.Height = w, h
-	m.in.ta.SetWidth(max(m.width-2, 20))
 	m.refresh()
 }
 

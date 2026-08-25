@@ -150,11 +150,11 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 			body := strings.Split(strings.TrimRight(e.result, "\n"), "\n")
 			from := clamp(e.offset, 0, max(0, len(body)-1))
 			to := min(from+resultLines, len(body))
-			head := fmt.Sprintf("  result · lines %d–%d of %d", from+1, to, len(body))
+			window := fmt.Sprintf("  result · lines %d–%d of %d", from+1, to, len(body))
 			if len(body) <= resultLines {
-				head = fmt.Sprintf("  result · %d lines", len(body))
+				window = fmt.Sprintf("  result · %d lines", len(body))
 			}
-			lines = append(lines, m.st.dim.Render(head))
+			lines = append(lines, m.st.dim.Render(window))
 			for _, l := range body[from:to] {
 				lines = append(lines, m.st.text.Render("    "+ansi.Truncate(l, inner-4, "…")))
 			}

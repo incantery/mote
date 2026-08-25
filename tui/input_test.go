@@ -43,6 +43,10 @@ func TestInputMultiline(t *testing.T) {
 	if m.in.height() != 1 {
 		t.Fatal("the box should have shrunk back")
 	}
+	// The line is on screen before the agent has said anything.
+	if !strings.Contains(m.transcript(), "first") {
+		t.Fatalf("the question is not in the transcript yet:\n%s", m.transcript())
+	}
 }
 
 // The box only grows so far, or it eats the transcript.
