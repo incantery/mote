@@ -27,8 +27,13 @@ const (
 	KindStatus Kind = "status"
 	// KindToolCall is a tool about to run: ID, Name, Args.
 	KindToolCall Kind = "tool_call"
+	// KindToolOutput is a piece of what a tool is printing while it
+	// runs: ID, Text. A tool that takes a minute says so as it goes.
+	// Any number of these arrive between a call and its result.
+	KindToolOutput Kind = "tool_output"
 	// KindToolResult is that tool having run: ID, Result, Duration,
-	// and Cost if the agent knows one.
+	// and Cost if the agent knows one. It ends the call, whether
+	// anything was streamed or not.
 	KindToolResult Kind = "tool_result"
 	// KindNotice is something that happened outside this exchange —
 	// a task finished, a file changed. It may arrive mid-reply.
@@ -36,7 +41,8 @@ const (
 	// KindError is a failure the person should see. It does not end
 	// the stream; KindDone does.
 	KindError Kind = "error"
-	// KindDone ends the exchange. Exactly one, last, always.
+	// KindDone ends the exchange. Exactly one, last, always. It may
+	// carry Cost, InputTokens and OutputTokens for the turn.
 	KindDone Kind = "done"
 )
 
@@ -47,11 +53,11 @@ const (
 type Event struct {
 	Kind Kind `json:"kind"`
 
-	// Text is the delta, the status line, the notice, or the error,
-	// depending on Kind.
+	// Text is the delta, the status line, the notice, the error, or a
+	// piece of a tool's output, depending on Kind.
 	Text string `json:"text,omitempty"`
 
-	// ID ties a KindToolResult to its KindToolCall.
+	// ID ties a KindToolOutput or KindToolResult to its KindToolCall.
 	ID string `json:"id,omitempty"`
 	// Name is the tool's name (KindToolCall).
 	Name string `json:"name,omitempty"`
@@ -63,7 +69,16 @@ type Event struct {
 	// Duration is how long the tool took (KindToolResult).
 	Duration time.Duration `json:"duration,omitempty"`
 	// Cost is USD spent, if the agent tracks it. Zero means unknown.
+	// On KindToolResult it is that call's; on KindDone it is the
+	// whole turn's model cost — what the exchange spent on the model
+	// itself, not counting the tools, which reported their own.
 	Cost float64 `json:"cost,omitempty"`
+	// InputTokens and OutputTokens are the turn's, on KindDone, if
+	// the agent knows them. Zero means it does not. Nothing here
+	// says where the numbers came from: an agent that knows its
+	// provider fills them in, and one that does not leaves them.
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
 }
 
 // Agent is the whole of what a terminal needs.
@@ -113,6 +128,11 @@ func Call(id, name, args string) Event {
 	return Event{Kind: KindToolCall, ID: id, Name: name, Args: args}
 }
 
+// Output is a piece of what a tool is printing as it runs.
+func Output(id, text string) Event {
+	return Event{Kind: KindToolOutput, ID: id, Text: text}
+}
+
 // Result is a tool having run. Pass cost 0 when it is not known.
 func Result(id, result string, d time.Duration, cost float64) Event {
 	return Event{Kind: KindToolResult, ID: id, Result: result, Duration: d, Cost: cost}
@@ -120,3 +140,11 @@ func Result(id, result string, d time.Duration, cost float64) Event {
 
 // Done ends an exchange.
 func Done() Event { return Event{Kind: KindDone} }
+
+// Spent ends an exchange and says what the model itself cost: USD,
+// and the turn's tokens. Zeros mean the agent does not know, which is
+// the honest answer for an agent on the other end of a wire that does
+// not tell it.
+func Spent(cost float64, in, out int) Event {
+	return Event{Kind: KindDone, Cost: cost, InputTokens: in, OutputTokens: out}
+}

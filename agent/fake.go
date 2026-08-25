@@ -93,21 +93,26 @@ func (f *Fake) Send(ctx context.Context, conversation, text string) (<-chan Even
 }
 
 // DefaultScript picks a scene. A word in the text wins — "error" or
-// "fail" for the failure, "tool" or "run" for the tool round — and
+// "fail" for the failure, "test", "build" or "stream" for the tool
+// that talks while it runs, "tool" or "run" for the tool round — and
 // otherwise the turns cycle, so that ten seconds of typing anything at
 // all shows the whole vocabulary.
 func DefaultScript(turn int, conversation, text string) []Step {
 	switch low := strings.ToLower(text); {
 	case strings.Contains(low, "error"), strings.Contains(low, "fail"):
 		return ErrorScene(text)
+	case strings.Contains(low, "stream"), strings.Contains(low, "build"), strings.Contains(low, "test"):
+		return StreamScene(text)
 	case strings.Contains(low, "tool"), strings.Contains(low, "run"):
 		return ToolScene(text)
 	}
-	switch turn % 3 {
+	switch turn % 4 {
 	case 1:
 		return ToolScene(text)
 	case 2:
 		return ErrorScene(text)
+	case 3:
+		return StreamScene(text)
 	}
 	return MarkdownScene(text)
 }
@@ -139,6 +144,30 @@ func ToolScene(text string) []Step {
 		{After: 250 * time.Millisecond, Event: Status("writing it up")},
 	}
 	return append(steps, stream(toolReply, 300*time.Millisecond, 40*time.Millisecond)...)
+}
+
+// StreamScene is a tool that talks while it works: one call, its
+// output arriving line by line, then the result that ends it. The
+// result is empty on purpose — everything the command had to say it
+// already said, and the card keeps what it streamed.
+func StreamScene(text string) []Step {
+	steps := []Step{
+		{After: 180 * time.Millisecond, Event: Status("running the tests")},
+		{After: 300 * time.Millisecond, Event: Call("call_1", "shell",
+			`{"cmd":"go test ./... -race","dir":"/src/mote"}`)},
+	}
+	for _, l := range strings.SplitAfter(testOutput, "\n") {
+		if l == "" {
+			continue
+		}
+		steps = append(steps, Step{After: 260 * time.Millisecond, Event: Output("call_1", l)})
+	}
+	steps = append(steps,
+		Step{After: 400 * time.Millisecond, Event: Result("call_1", "", 9840*time.Millisecond, 0.0007)},
+		Step{After: 250 * time.Millisecond, Event: Status("writing it up")},
+	)
+	steps = append(steps, stream(streamReply, 300*time.Millisecond, 40*time.Millisecond)...)
+	return append(steps, Step{After: 200 * time.Millisecond, Event: Spent(0.0138, 18422, 611)})
 }
 
 // ErrorScene starts a reply and then fails partway, which is the shape
@@ -238,6 +267,27 @@ Next: the ` + "`tool`" + ` registry, so a profile can say *ask* by path.
 
 const errorReply = `Let me look at the provider's rate limits before I
 answer that — the last three calls all came back slower than
+`
+
+const testOutput = `go: downloading github.com/charmbracelet/bubbletea v1.3.10
+=== RUN   TestFakeIsDeterministic
+--- PASS: TestFakeIsDeterministic (0.00s)
+=== RUN   TestFakeDeltasReassemble
+--- PASS: TestFakeDeltasReassemble (0.00s)
+=== RUN   TestFakeScenes
+=== RUN   TestFakeScenes/markdown
+=== RUN   TestFakeScenes/tools
+=== RUN   TestFakeScenes/stream
+--- PASS: TestFakeScenes (0.01s)
+ok  	github.com/incantery/mote/agent	1.204s
+ok  	github.com/incantery/mote/session	0.311s
+ok  	github.com/incantery/mote/tui	8.325s`
+
+const streamReply = `Green, under ` + "`-race`" + `. The slow one is ` + "`tui`" + ` — the golden
+files render markdown at three widths, and glamour builds a syntax
+highlighter for each.
+
+Nothing to fix.
 `
 
 const readFileResult = `# mote
