@@ -32,12 +32,13 @@ type entry struct {
 	id       string
 	name     string
 	args     string
-	result   string
+	output   string // what the tool printed as it ran
+	result   string // what it returned when it ended
 	dur      time.Duration
 	cost     float64
 	running  bool
 	expanded bool
-	offset   int // first result line shown, when expanded
+	offset   int // first body line shown, when expanded
 
 	cache  string
 	cacheW int
@@ -45,6 +46,19 @@ type entry struct {
 }
 
 func (e *entry) volatile() bool { return e.kind == entryTool && e.running }
+
+// body is everything the tool said, in order: what it printed as it
+// ran, then what it returned. A tool that streams and then returns
+// nothing keeps its output; one that only returns shows the result.
+func (e *entry) body() string {
+	switch {
+	case e.output == "":
+		return e.result
+	case e.result == "":
+		return e.output
+	}
+	return strings.TrimRight(e.output, "\n") + "\n" + e.result
+}
 
 // invalidate drops the cached render. Anything that changes what an
 // entry looks like has to call it.
@@ -88,8 +102,8 @@ func (m *Model) renderProse(e *entry, w int) string {
 
 // --- tool cards ---------------------------------------------------------
 
-// resultLines is how much of a tool result an expanded card shows at
-// once. Results are routinely thousands of lines; the card is a
+// resultLines is how much of a tool's output an expanded card shows
+// at once. Results are routinely thousands of lines; the card is a
 // window on one, not a copy of it.
 const resultLines = 12
 
@@ -115,8 +129,14 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 		mark, mst = "✗", m.st.errline
 	}
 
+	// A running tool with something to say says how much of it there
+	// is; a finished one says what it took.
 	right := ""
-	if !e.running {
+	if e.running {
+		if e.output != "" {
+			right = formatVolume(e.output)
+		}
+	} else {
 		right = formatDuration(e.dur)
 		if e.cost > 0 {
 			right += "  " + formatCost(e.cost)
@@ -144,15 +164,25 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 		for _, l := range strings.Split(prettyJSON(e.args), "\n") {
 			lines = append(lines, m.st.toolArgs.Render("    "+ansi.Truncate(l, inner-4, "…")))
 		}
-		if e.running {
+		switch text := e.body(); {
+		case e.running && text == "":
 			lines = append(lines, m.st.status.Render("  running…"))
-		} else {
-			body := strings.Split(strings.TrimRight(e.result, "\n"), "\n")
+		default:
+			what := "result"
+			if e.output != "" {
+				what = "output"
+			}
+			body := strings.Split(strings.TrimRight(text, "\n"), "\n")
+			// A tool still printing is followed, not paged: the end
+			// of what it has said is the part worth looking at.
 			from := clamp(e.offset, 0, max(0, len(body)-1))
+			if e.running {
+				from = max(0, len(body)-resultLines)
+			}
 			to := min(from+resultLines, len(body))
-			window := fmt.Sprintf("  result · lines %d–%d of %d", from+1, to, len(body))
+			window := fmt.Sprintf("  %s · lines %d–%d of %d", what, from+1, to, len(body))
 			if len(body) <= resultLines {
-				window = fmt.Sprintf("  result · %d lines", len(body))
+				window = fmt.Sprintf("  %s · %d lines", what, len(body))
 			}
 			lines = append(lines, m.st.dim.Render(window))
 			for _, l := range body[from:to] {
@@ -166,10 +196,10 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// resultHeight is how many lines an expanded card's result has, so the
+// resultHeight is how many lines an expanded card's body has, so the
 // keys that scroll it know where the end is.
 func (e *entry) resultHeight() int {
-	return len(strings.Split(strings.TrimRight(e.result, "\n"), "\n"))
+	return len(strings.Split(strings.TrimRight(e.body(), "\n"), "\n"))
 }
 
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -249,6 +279,44 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%.2fs", d.Seconds())
 	default:
 		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+}
+
+// formatVolume is how much a running tool has printed. Lines are what
+// a person counts; bytes are what tells them it is still moving when
+// the lines are long.
+func formatVolume(s string) string {
+	lines := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		lines++
+	}
+	unit := "lines"
+	if lines == 1 {
+		unit = "line"
+	}
+	return fmt.Sprintf("%d %s · %s", lines, unit, formatBytes(len(s)))
+}
+
+func formatBytes(n int) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d B", n)
+	case n < 1000*1000:
+		return fmt.Sprintf("%.1f kB", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%.1f MB", float64(n)/1000/1000)
+	}
+}
+
+// formatTokens is a token count small enough for a status line.
+func formatTokens(n int) string {
+	switch {
+	case n < 10000:
+		return fmt.Sprintf("%d", n)
+	case n < 1000*1000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%.1fM", float64(n)/1000/1000)
 	}
 }
 

@@ -46,9 +46,13 @@ func conversation() []tea.Msg {
 		agent.Status("reading README.md"),
 		agent.Result("call_1", "# mote\n\nA small agent harness, in Go.\nline three\nline four\nline five", 1420*time.Millisecond, 0.0021),
 		agent.Notice("task 184a1100 finished — /report 184a1100"),
+		agent.Call("call_2", "shell", `{"cmd":"go test ./... -race"}`),
+		agent.Output("call_2", "ok\tgithub.com/incantery/mote/agent\t0.006s\n"),
+		agent.Output("call_2", "ok\tgithub.com/incantery/mote/session\t0.008s\n"),
+		agent.Result("call_2", "", 9840*time.Millisecond, 0.0007),
 		agent.Delta("Read it. The first milestone is the terminal.\n"),
 		agent.Fail("upstream: 429 rate limited — retry in 12s"),
-		agent.Done(),
+		agent.Spent(0.0138, 18422, 611),
 	)...)
 	return msgs
 }
