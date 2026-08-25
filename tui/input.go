@@ -148,6 +148,12 @@ func (in *input) suggest() {
 
 func (in *input) completing() bool { return len(in.sugg) > 0 }
 
+// exact says the box already holds the selected command in full, so
+// enter should run it rather than complete it again.
+func (in *input) exact() bool {
+	return in.completing() && in.ta.Value() == "/"+in.sugg[in.sel].Name
+}
+
 func (in *input) move(delta int) {
 	if !in.completing() {
 		return

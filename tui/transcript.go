@@ -266,7 +266,7 @@ func hang(st lipgloss.Style, prefix, cont, text string, w int) string {
 	if inner < 8 {
 		inner = 8
 	}
-	wrapped := lipgloss.NewStyle().Width(inner).Render(text)
+	wrapped := ansi.Wrap(text, inner, " -/")
 	var b strings.Builder
 	for i, l := range strings.Split(wrapped, "\n") {
 		if i > 0 {

@@ -185,9 +185,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.waitEvent(), m.tick())
 
 	case turnMsg:
+		// It came down the same channel the events did, so everything
+		// the agent said has already been folded in.
 		m.finish(msg.err)
 		m.refresh()
-		return m, m.pollSideCmd()
+		return m, tea.Batch(m.waitEvent(), m.pollSideCmd())
 
 	case noteMsg:
 		m.add(&entry{kind: entryNotice, text: msg.text})
@@ -256,7 +258,8 @@ func (m *Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		if m.in.accept() {
+		// Enter finishes a half-typed command; a whole one it runs.
+		if !m.in.exact() && m.in.accept() {
 			m.layout()
 			return m, nil
 		}
@@ -386,16 +389,22 @@ func (m *Model) send(text string) tea.Cmd {
 	m.partial = ""
 	m.follow = true
 
+	// The end of the turn goes down the same channel as the events,
+	// not back as this command's result: a tea.Cmd's return value can
+	// overtake what is still queued, and a turn that ends early loses
+	// the last of the reply.
 	a, conv, out := m.agent, m.conversation, m.events
 	stream := func() tea.Msg {
 		ch, err := a.Send(ctx, conv, text)
 		if err != nil {
-			return turnMsg{err}
+			out <- turnMsg{err}
+			return nil
 		}
 		for ev := range ch {
 			out <- eventMsg{ev}
 		}
-		return turnMsg{nil}
+		out <- turnMsg{nil}
+		return nil
 	}
 	return tea.Batch(stream, m.tick())
 }
