@@ -269,6 +269,42 @@ func TestOutputAndResultAreBothKept(t *testing.T) {
 	}
 }
 
+// A turn that ended with a call still open leaves a card that is not
+// running any more — and comes back that way, rather than spinning
+// forever in a transcript where nothing is happening.
+func TestInterruptedCallDoesNotSpinForever(t *testing.T) {
+	dir := t.TempDir()
+	s := openSession(t, dir, "c")
+	m := plain(t, 100, 30, Options{Name: "mote", Session: s})
+	typeIn(m, "run something slow")
+	step(m, kmsg("enter"))
+	step(m, events(agent.Call("c1", "shell", `{"cmd":"sleep 900"}`))...)
+	step(m, kmsg("esc")) // stop the turn
+	step(m, events(agent.Done())...)
+
+	card := m.entries[1]
+	if card.running || !card.stopped() {
+		t.Fatalf("the card is running=%v stopped=%v", card.running, card.stopped())
+	}
+	if m.moving() {
+		t.Fatal("nothing is happening, but the terminal still wants frames")
+	}
+	line := firstLine(m.renderTool(card, 100, false))
+	if !strings.Contains(line, "stopped") || !strings.Contains(line, "✗") {
+		t.Errorf("the card says %q", line)
+	}
+
+	s.Close()
+	again := openSession(t, dir, "c")
+	m2 := plain(t, 100, 30, Options{Name: "mote", Session: again})
+	if got, want := m2.transcript(), m.transcript(); got != want {
+		t.Errorf("reopened:\n%s\nwas:\n%s", got, want)
+	}
+	if m2.moving() {
+		t.Fatal("a reopened transcript is not moving")
+	}
+}
+
 // --- totals -------------------------------------------------------------
 
 // The status line carries the turn while it runs and the conversation

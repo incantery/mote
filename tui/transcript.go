@@ -47,6 +47,16 @@ type entry struct {
 
 func (e *entry) volatile() bool { return e.kind == entryTool && e.running }
 
+// stopped is a call the turn ended without: no result, no output, no
+// time. The person pressed esc, or the agent said done with a call
+// still open. It is derived rather than stored so that it survives a
+// round trip through the events in a session file, which have nowhere
+// else to put it.
+func (e *entry) stopped() bool {
+	return e.kind == entryTool && !e.running && e.dur == 0 &&
+		e.result == "" && e.output == ""
+}
+
 // body is everything the tool said, in order: what it printed as it
 // ran, then what it returned. A tool that streams and then returns
 // nothing keeps its output; one that only returns shows the result.
@@ -125,7 +135,7 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 	switch {
 	case e.running:
 		mark, mst = spinnerFrame(m.frame), m.st.status
-	case strings.HasPrefix(e.result, "error:"):
+	case e.stopped(), strings.HasPrefix(e.result, "error:"):
 		mark, mst = "✗", m.st.errline
 	}
 
@@ -136,6 +146,8 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 		if e.output != "" {
 			right = formatVolume(e.output)
 		}
+	} else if e.stopped() {
+		right = "stopped"
 	} else {
 		right = formatDuration(e.dur)
 		if e.cost > 0 {
@@ -167,6 +179,8 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 		switch text := e.body(); {
 		case e.running && text == "":
 			lines = append(lines, m.st.status.Render("  running…"))
+		case e.stopped():
+			lines = append(lines, m.st.errline.Render("  stopped — the turn ended first"))
 		default:
 			what := "result"
 			if e.output != "" {

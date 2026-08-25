@@ -590,6 +590,16 @@ func (m *Model) finish(err error) {
 	}
 	m.inflight = false
 	m.statusText = ""
+	// A call the turn ended without is not running any more, whatever
+	// it was doing: close it, or its spinner turns forever and comes
+	// back turning when the conversation is reopened.
+	for _, e := range m.entries {
+		if e.kind == entryTool && e.running {
+			e.running = false
+			e.invalidate()
+			m.resetStable()
+		}
+	}
 	if m.turnStart < 0 {
 		return // done and the end of the stream both land here
 	}
