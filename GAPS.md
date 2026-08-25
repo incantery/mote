@@ -30,3 +30,6 @@ reports, using the chat — and classified as they came up:
 | 2026-08-25 | no permanent one-liner for focus/runs-in-flight beside the model name | mote tui | later | `Options.StatusRight func() string` |
 | 2026-08-25 | vera's chat is on mote/tui (c8ee7ae8): agent over /say incl. tool frames, fleet as rail, commands, notices; 822→544 lines, none layout | vera chat | tui | delivered |
 | 2026-08-25 | vera requires a private mote; `go run …/cmd/vera@latest` on-ramp in vera's READMEs is now false for anyone without access | repos | now | decision: mote public, or drop the on-ramp line |
+| 2026-08-25 | vera chat on mote, driven live: fleet tool card (5ms) opens to args/result, reply as markdown, rail live | vera chat | tui | verified by use |
+| 2026-08-25 | a terminal query reply (`[1;1R`, cursor position) is typed into the input on start — glamour `auto` style/termenv queries the terminal after Bubble Tea owns stdin | mote tui | now | detect the style before `tea.NewProgram`, or pin `dark`/`light` and query once with termenv |
+| 2026-08-25 | the greeting wraps mid-sentence around inline code (`/help` / `has` / `the keys`) | mote tui | tui | glamour inline-code padding; wrap at the real width |
