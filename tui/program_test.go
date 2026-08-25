@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/incantery/mote/agent"
+	"github.com/incantery/mote/session"
 	"github.com/muesli/termenv"
 )
 
@@ -41,11 +42,17 @@ func (w *watched) Send(ctx context.Context, conversation, text string) (<-chan a
 func TestProgramRunsAnExchange(t *testing.T) {
 	pal := DefaultPalette()
 	pal.Markdown = "ascii"
+	dir := t.TempDir()
+	sess, err := session.Open(dir, "test-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	w := &watched{inner: &agent.Fake{Instant: true}, done: make(chan struct{})}
 	m := New(w, Options{
 		Name:         "mote",
 		Model:        "fake-1",
 		Conversation: "test-1",
+		Session:      sess,
 		Palette:      &pal,
 		Renderer:     lipgloss.NewRenderer(io.Discard, termenv.WithProfile(termenv.Ascii)),
 		Side:         func() []SideItem { return []SideItem{{ID: "x", Title: "a task", State: Working}} },
@@ -93,5 +100,33 @@ func TestProgramRunsAnExchange(t *testing.T) {
 	}
 	if !strings.Contains(got.View(), "fleet") {
 		t.Error("the rail is not on screen")
+	}
+
+	// And it is on disk: the same transcript, from a second process's
+	// point of view.
+	if err := sess.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := session.Open(dir, "test-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if n := len(again.Turns()); n != 1 {
+		t.Fatalf("%d turns on disk", n)
+	}
+	if h := again.History(); len(h) != 1 || h[0] != "tell me about tools" {
+		t.Fatalf("history %q", h)
+	}
+	reopened := New(&agent.Fake{Instant: true}, Options{
+		Name: "mote", Model: "fake-1", Conversation: "test-1", Session: again,
+		Palette:   &pal,
+		Renderer:  lipgloss.NewRenderer(io.Discard, termenv.WithProfile(termenv.Ascii)),
+		Side:      func() []SideItem { return []SideItem{{ID: "x", Title: "a task", State: Working}} },
+		SideTitle: "fleet",
+	})
+	reopened.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	if a, b := reopened.transcript(), text; a != b {
+		t.Errorf("the reopened transcript differs.\n--- reopened ---\n%s\n--- was ---\n%s", a, b)
 	}
 }

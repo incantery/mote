@@ -129,6 +129,41 @@ func TestFakeScenes(t *testing.T) {
 		}
 	})
 
+	t.Run("stream", func(t *testing.T) {
+		evs := send(t, &Fake{Instant: true}, "run the tests")
+		k := kinds(evs)
+		if k[KindToolOutput] < 5 {
+			t.Fatalf("want a tool talking as it runs, got %v", k)
+		}
+		// Output belongs to an open call, and stops when it ends.
+		open, ended := map[string]bool{}, map[string]bool{}
+		var streamed strings.Builder
+		for _, e := range evs {
+			switch e.Kind {
+			case KindToolCall:
+				open[e.ID] = true
+			case KindToolOutput:
+				if !open[e.ID] {
+					t.Fatalf("output for unknown call %q", e.ID)
+				}
+				if ended[e.ID] {
+					t.Fatalf("output after the result of %q", e.ID)
+				}
+				streamed.WriteString(e.Text)
+			case KindToolResult:
+				ended[e.ID] = true
+			}
+		}
+		if got := streamed.String(); got != testOutput {
+			t.Fatalf("the pieces do not reassemble:\n%q", got)
+		}
+		// And done carries what the turn spent.
+		last := evs[len(evs)-1]
+		if last.Kind != KindDone || last.Cost <= 0 || last.InputTokens <= 0 || last.OutputTokens <= 0 {
+			t.Fatalf("done carried %+v", last)
+		}
+	})
+
 	t.Run("error", func(t *testing.T) {
 		evs := send(t, &Fake{Instant: true}, "make it fail")
 		k := kinds(evs)
@@ -167,14 +202,15 @@ func TestFakeCancels(t *testing.T) {
 func TestFakeCyclesScenes(t *testing.T) {
 	f := &Fake{Instant: true}
 	seen := map[Kind]bool{}
-	for range 3 {
+	for range 4 {
 		for _, ev := range send(t, f, "hello") {
 			seen[ev.Kind] = true
 		}
 	}
-	for _, k := range []Kind{KindDelta, KindStatus, KindToolCall, KindToolResult, KindNotice, KindError, KindDone} {
+	for _, k := range []Kind{KindDelta, KindStatus, KindToolCall, KindToolOutput,
+		KindToolResult, KindNotice, KindError, KindDone} {
 		if !seen[k] {
-			t.Fatalf("three turns never produced a %s", k)
+			t.Fatalf("four turns never produced a %s", k)
 		}
 	}
 }

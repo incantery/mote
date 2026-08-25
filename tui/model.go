@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
+	"github.com/incantery/mote/session"
 )
 
 // frameRate is how often anything that moves — spinners — redraws.
@@ -36,6 +37,23 @@ type Model struct {
 	statusText string
 	inflight   bool
 	cancel     context.CancelFunc
+
+	// The turn being recorded. turnStart is where in entries the
+	// agent's side of it begins, and -1 when no turn is in flight,
+	// which is also what keeps a turn from being written twice: done
+	// and the end of the stream both call finish.
+	sess      *session.Session
+	turnStart int
+	turnAt    time.Time
+	turnSaid  string
+	turnCost  float64
+	turnIn    int
+	turnOut   int
+
+	// The conversation's, restored turns included.
+	total    float64
+	totalIn  int
+	totalOut int
 
 	// The finished transcript is rendered once and kept. stable holds
 	// the joined render of entries[:stableN] at width stableW;
@@ -81,6 +99,8 @@ func New(a agent.Agent, opts Options) *Model {
 		follow:       true,
 		in:           newInput(st, opts.Placeholder),
 		focus:        -1,
+		turnStart:    -1,
+		sess:         opts.Session,
 		events:       make(chan tea.Msg, 128),
 	}
 	m.vp.MouseWheelEnabled = true
@@ -88,11 +108,64 @@ func New(a agent.Agent, opts Options) *Model {
 	if opts.Greeting != "" {
 		m.entries = append(m.entries, &entry{kind: entryBlock, text: opts.Greeting})
 	}
+	if m.sess != nil {
+		m.restore()
+	}
 	if opts.Side != nil {
 		m.side = opts.Side()
 		m.sideOpen = true
 	}
 	return m
+}
+
+// restore rebuilds the transcript from the file. It folds the stored
+// events through the same apply the live ones go through, so what a
+// reopened conversation looks like is not a second rendering that has
+// to be kept in step with the first — it is the first, replayed. What
+// was streamed arrives whole, and every card comes back closed.
+func (m *Model) restore() {
+	for _, t := range m.sess.Turns() {
+		if t.Said != "" {
+			m.add(&entry{kind: entryUser, text: t.Said})
+		}
+		for _, ev := range t.Events {
+			m.apply(ev)
+		}
+		m.commit()
+		m.total += t.Cost
+		m.totalIn += t.InputTokens
+		m.totalOut += t.OutputTokens
+	}
+	m.in.load(m.sess.History())
+}
+
+// record is the turn that just ended, built from the entries it left
+// behind rather than from the events that made them. The transcript
+// is what we want back, so the transcript is what is written down.
+func (m *Model) record() session.Turn {
+	t := session.Turn{
+		At: m.turnAt, Ended: time.Now(), Said: m.turnSaid,
+		Cost: m.turnCost, InputTokens: m.turnIn, OutputTokens: m.turnOut,
+	}
+	for _, e := range m.entries[min(m.turnStart, len(m.entries)):] {
+		switch e.kind {
+		case entryReply:
+			t.Events = append(t.Events, agent.Delta(e.text))
+		case entryNotice:
+			t.Events = append(t.Events, agent.Notice(e.text))
+		case entryError:
+			t.Events = append(t.Events, agent.Fail(e.text))
+		case entryTool:
+			t.Events = append(t.Events, agent.Call(e.id, e.name, e.args))
+			if e.output != "" {
+				t.Events = append(t.Events, agent.Output(e.id, e.output))
+			}
+			if !e.running {
+				t.Events = append(t.Events, agent.Result(e.id, e.result, e.dur, e.cost))
+			}
+		}
+	}
+	return t
 }
 
 // commands is what completion offers: the application's, plus /help if
@@ -208,6 +281,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case convMsg:
 		m.conversation = msg.id
+		return m, nil
+
+	case sessionMsg:
+		m.sess = msg.s
 		return m, nil
 
 	case sideMsg:
@@ -338,6 +415,11 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.in.remember(text)
+	if m.sess != nil {
+		if err := m.sess.Remember(text); err != nil {
+			m.add(&entry{kind: entryError, text: "session: " + err.Error()})
+		}
+	}
 	m.in.reset()
 	m.layout()
 
@@ -392,6 +474,12 @@ func (m *Model) send(text string) tea.Cmd {
 	m.partial = ""
 	m.follow = true
 
+	// The question is already in the transcript; the agent's side of
+	// this turn starts here.
+	m.turnStart = len(m.entries)
+	m.turnAt, m.turnSaid = time.Now(), text
+	m.turnCost, m.turnIn, m.turnOut = 0, 0, 0
+
 	// The end of the turn goes down the same channel as the events,
 	// not back as this command's result: a tea.Cmd's return value can
 	// overtake what is still queued, and a turn that ends early loses
@@ -435,18 +523,18 @@ func (m *Model) apply(ev agent.Event) {
 		m.add(&entry{kind: entryTool, id: ev.ID, name: ev.Name, args: ev.Args, running: true})
 		m.statusText = ""
 
-	case agent.KindToolResult:
-		for i := len(m.entries) - 1; i >= 0; i-- {
-			e := m.entries[i]
-			if e.kind == entryTool && e.id == ev.ID && e.running {
-				e.result, e.dur, e.cost, e.running = ev.Result, ev.Duration, ev.Cost, false
-				e.invalidate()
-				if i < m.stableN {
-					m.resetStable()
-				}
-				break
-			}
+	case agent.KindToolOutput:
+		if e := m.openCard(ev.ID); e != nil {
+			e.output += ev.Text
+			e.invalidate()
 		}
+
+	case agent.KindToolResult:
+		if e := m.openCard(ev.ID); e != nil {
+			e.result, e.dur, e.cost, e.running = ev.Result, ev.Duration, ev.Cost, false
+			e.invalidate()
+		}
+		m.spend(ev.Cost, 0, 0)
 
 	case agent.KindNotice:
 		// A notice belongs to the world, not to the reply, so it goes
@@ -458,8 +546,37 @@ func (m *Model) apply(ev agent.Event) {
 		m.add(&entry{kind: entryError, text: ev.Text})
 
 	case agent.KindDone:
+		// Cost on done is the model's own spend for the whole turn;
+		// the tools have already reported theirs.
+		m.spend(ev.Cost, ev.InputTokens, ev.OutputTokens)
 		m.finish(nil)
 	}
+}
+
+// openCard finds the running card a tool event belongs to. An event
+// for a call nobody made is dropped, not crashed on.
+func (m *Model) openCard(id string) *entry {
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		e := m.entries[i]
+		if e.kind == entryTool && e.id == id && e.running {
+			if i < m.stableN {
+				m.resetStable()
+			}
+			return e
+		}
+	}
+	return nil
+}
+
+// spend adds to the turn's running total. It only counts while a turn
+// is in flight, so replaying a file does not charge for it twice.
+func (m *Model) spend(cost float64, in, out int) {
+	if m.turnStart < 0 {
+		return
+	}
+	m.turnCost += cost
+	m.turnIn += in
+	m.turnOut += out
 }
 
 func (m *Model) finish(err error) {
@@ -473,6 +590,29 @@ func (m *Model) finish(err error) {
 	}
 	m.inflight = false
 	m.statusText = ""
+	// A call the turn ended without is not running any more, whatever
+	// it was doing: close it, or its spinner turns forever and comes
+	// back turning when the conversation is reopened.
+	for _, e := range m.entries {
+		if e.kind == entryTool && e.running {
+			e.running = false
+			e.invalidate()
+			m.resetStable()
+		}
+	}
+	if m.turnStart < 0 {
+		return // done and the end of the stream both land here
+	}
+	turn := m.record()
+	m.turnStart = -1
+	m.total += turn.Cost
+	m.totalIn += turn.InputTokens
+	m.totalOut += turn.OutputTokens
+	if m.sess != nil {
+		if err := m.sess.Append(turn); err != nil {
+			m.add(&entry{kind: entryError, text: "session: " + err.Error()})
+		}
+	}
 }
 
 // commit turns the reply in flight into a finished entry.
@@ -699,12 +839,34 @@ func (m *Model) statusLine() string {
 	if m.inflight {
 		left += " · " + spinnerFrame(m.frame) + " working"
 	}
+	if t := m.totals(); t != "" {
+		left += " · " + t
+	}
 	right := m.hints()
 	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if pad < 1 {
 		return ansi.Truncate(m.st.statusbar.Render(left), max(m.width, 1), "…")
 	}
 	return m.st.statusbar.Render(left) + strings.Repeat(" ", pad) + m.st.hint.Render(right) + " "
+}
+
+// totals is what has been spent: this turn while it runs, and the
+// whole conversation once it is over. A turn's number moves, which is
+// the one worth watching; a conversation's is what you look at
+// afterwards. Both are only there when somebody knew a number.
+func (m *Model) totals() string {
+	cost, in, out := m.total, m.totalIn, m.totalOut
+	if m.inflight {
+		cost, in, out = m.turnCost, m.turnIn, m.turnOut
+	}
+	var parts []string
+	if cost > 0 {
+		parts = append(parts, formatCost(cost))
+	}
+	if n := in + out; n > 0 {
+		parts = append(parts, formatTokens(n)+" tok")
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m *Model) hints() string {

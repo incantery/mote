@@ -73,6 +73,15 @@ func (in *input) reset() {
 	in.resize()
 }
 
+// load replaces the history with one from somewhere else — a session
+// file, at startup. The cursor sits past the end, so the first up
+// arrow reaches the last thing the person said.
+func (in *input) load(history []string) {
+	in.history = append([]string(nil), history...)
+	in.at = len(in.history)
+	in.draft = ""
+}
+
 // remember pushes a sent line onto the history, skipping a repeat of
 // the last one.
 func (in *input) remember(s string) {

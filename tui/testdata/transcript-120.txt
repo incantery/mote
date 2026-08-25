@@ -20,6 +20,8 @@
 
 · task 184a1100 finished — /report 184a1100
 
+  ▸ ✓ shell  cmd=go test ./... -race                                                                      9.84s  $0.0007
+
   Read it. The first milestone is the terminal.                                                                       
 
 ✗ upstream: 429 rate limited — retry in 12s

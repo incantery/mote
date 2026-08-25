@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/incantery/mote/agent"
+	"github.com/incantery/mote/session"
 )
 
 // Options is everything the application tells the terminal. All of it
@@ -47,6 +48,14 @@ type Options struct {
 	// goroutine; have that Cmd return Note, Fail, Show, SetConversation
 	// or any tea.Msg of the application's own.
 	Handle func(name, args string) tea.Cmd
+
+	// Session is the conversation on disk. Nil keeps everything in
+	// memory, which is what a terminal over a stateless agent wants.
+	// With one, the transcript and the input history are rebuilt from
+	// it at New, and every exchange is appended as it ends. The
+	// terminal never opens or closes it: the application chose the
+	// file, and the application owns it.
+	Session *session.Session
 
 	// Notices carries events from outside any exchange — a task
 	// finished, a file changed. Only KindNotice, KindError and
@@ -121,6 +130,7 @@ type (
 	failMsg    struct{ text string }
 	blockMsg   struct{ md string }
 	convMsg    struct{ id string }
+	sessionMsg struct{ s *session.Session }
 	sideMsg    struct{ items []SideItem }
 	refreshMsg struct{}
 )
@@ -146,6 +156,16 @@ func Show(markdown string) tea.Cmd {
 // SetConversation changes the id future exchanges are sent under.
 func SetConversation(id string) tea.Cmd {
 	return func() tea.Msg { return convMsg{id} }
+}
+
+// SetSession changes the file future exchanges are appended to. It is
+// the other half of SetConversation — a /new that changes the id has
+// to change the record too, or the new conversation is written into
+// the old one's file. It does not touch what is already on screen:
+// the person is still looking at what happened, and a new file does
+// not unhappen it.
+func SetSession(s *session.Session) tea.Cmd {
+	return func() tea.Msg { return sessionMsg{s} }
 }
 
 // SetSide replaces the rail now, without waiting for the next poll.
