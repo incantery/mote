@@ -17,9 +17,13 @@ reports, using the chat — and classified as they came up:
 | 2026-08-25 | an agent mid-task posts no status for 12+ minutes; Vera reads "running" from pane activity, the person reads nothing | vera brief | later | ask for a status per milestone, or derive one from the pane title |
 | 2026-08-25 | milestone 1 landed and driven from a pane: streaming markdown (table, code), tool cards collapsed→expanded with args/result/duration/cost, notices, rail, status line all render | mote tui | tui | delivered (184a1100) |
 | 2026-08-25 | Vera's chat shows two panels at once (fleet strip + F2 belief); tui offers one rail | mote tui | tui | later: decide from the port — `Options.Panels` if both are needed on screen |
-| 2026-08-25 | input history and the transcript die with the process | mote session | later | milestone 2 |
-| 2026-08-25 | a long tool's output arrives whole; no `tool_output` kind to stream into an open card | mote agent | later | milestone 2 |
-| 2026-08-25 | no turn or session cost total, only per call | mote tui | later | milestone 2 |
+| 2026-08-25 | input history and the transcript die with the process | mote session | later | fixed: `session` on disk, `Options.Session`, `mote demo -c` (598e3374) |
+| 2026-08-25 | a long tool's output arrives whole; no `tool_output` kind to stream into an open card | mote agent | later | fixed: `agent.KindToolOutput` streams into the open card (598e3374) |
+| 2026-08-25 | no turn or session cost total, only per call | mote tui | later | fixed: the status line carries the turn's, then the conversation's (598e3374) |
 | 2026-08-25 | the `rook` CLI has no type/send verb — driving a pane from a script needs vera's mux backend (scratch `muxctl`) | rook | later | a `rook send <id> <text>` verb, or `vera pane` verbs |
 | 2026-08-25 | ~/.claude/skills/rook describes the old native app (`rook dump`, `rook split`), not the engine | rook skill | later | rewrite the skill from `rook help` |
+| 2026-08-25 | esc mid-tool left the card spinning forever; nothing resolved the call | mote tui | tui | fixed while building milestone 2: a call the turn ended without reads as stopped (598e3374) |
+| 2026-08-25 | Go has `os.UserConfigDir` and `os.UserCacheDir` but no state one | go | later | `cmd/mote/state.go` does XDG by hand; delete it when Go ships `os.UserStateDir` |
+| 2026-08-25 | a notice that arrives between exchanges is not recorded, so a reopened transcript loses it | mote session | later | deliberate — the file is the conversation, not the chrome. Revisit if a person misses one |
+| 2026-08-25 | no `mote dump <id>` to read a conversation without the terminal | mote session | later | the file is jsonl and `Turn.Answered()` exists; it is a printer, not a design |
 | 2026-08-25 | vera cannot `require github.com/incantery/mote` until mote is on GitHub (go.work resolves locally, `go mod tidy`/`go install @latest` do not) | repos | now | needs the repo published |
