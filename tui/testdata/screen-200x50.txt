@@ -1,0 +1,50 @@
+› why?                                                                                                                                                                  │ fleet                         
+                                                                                                                                                                        │ ──────────────────────────────
+  ## the seam                                                                                                                                                           │ ▸ ● build mote's first milest…
+                                                                                                                                                                        │     184a1100 · working · mote 
+  A harness is a loop over a model with tools. The pieces:                                                                                                              │   · tool registry with policy 
+                                                                                                                                                                        │     c41f9a02 · idle · mote    
+  • agent — the loop, and this seam                                                                                                                                     │   ! session on disk           
+  • tui — the terminal                                                                                                                                                  │     7b20e5d9 · blocked · mote 
+                                                                                                                                                                        │   ✓ anthropic provider        
+    type Agent interface {                                                                                                                                              │     0f3c8811 · done · mote    
+        Send(ctx context.Context, conversation, text string) (<-chan Event, error)                                                                                      │                               
+    }                                                                                                                                                                   │                               
+                                                                                                                                                                        │                               
+   agent                                                | where                                               | transport                                               │                               
+  ------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------    │                               
+   demo                                                 | here                                                | a channel                                               │                               
+   vera                                                 | verad                                               | HTTP                                                    │                               
+                                                                                                                                                                        │                               
+  ▸ ✓ read_file  path=README.md limit=200                                                                                                                 1.42s  $0.0021│                               
+                                                                                                                                                                        │                               
+· task 184a1100 finished — /report 184a1100                                                                                                                             │                               
+                                                                                                                                                                        │                               
+  Read it. The first milestone is the terminal.                                                                                                                         │                               
+                                                                                                                                                                        │                               
+✗ upstream: 429 rate limited — retry in 12s                                                                                                                             │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+                                                                                                                                                                        │                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+› say something, or / for commands                                                                                                                                                                    
+mote · fake-1 · demo-1                                                                                                 enter send · alt+enter newline · tab card · ctrl+o expand · ctrl+t side · /help 

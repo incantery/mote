@@ -1,0 +1,11 @@
+› hi
+
+  ▸ ✓ read_file  path=README.md limit=200                                             420ms  $0.0003
+
+  ▸ ⠋ grep  pattern=func Send glob=**/*.go
+
+  Here is what I found so far:                                                                    
+                                                                                                  
+    func Send(                                                                                    
+
+⠋ searching
