@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/incantery/mote/agent"
+	"github.com/incantery/mote/session"
 	"github.com/incantery/mote/tui"
 )
 
@@ -18,9 +19,30 @@ func demo(args []string) error {
 	fs := flag.NewFlagSet("mote demo", flag.ContinueOnError)
 	light := fs.Bool("light", false, "style the markdown for a light terminal")
 	style := fs.String("style", "", "glamour style: auto, dark, light, ascii, notty")
+	conv := fs.String("c", "", "reopen this conversation (see `mote sessions`)")
+	dir := fs.String("dir", "", "where the conversations live")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+
+	// A conversation on disk, so that quitting is not the same as
+	// forgetting. -c reopens one; without it, a fresh id per run.
+	sdir, err := sessionDir(*dir)
+	if err != nil {
+		return err
+	}
+	id := *conv
+	if id == "" {
+		id = newConversation()
+	}
+	sess, err := session.Open(sdir, id)
+	if err != nil {
+		return err
+	}
+	// /new opens another one, and every file that was opened has to be
+	// closed, so they are kept together.
+	open := &openFiles{list: []*session.Session{sess}}
+	defer open.closeAll()
 
 	f := &fleet{items: seed()}
 	notices := make(chan agent.Event, 8)
@@ -39,23 +61,19 @@ func demo(args []string) error {
 	return tui.Run(&agent.Fake{}, tui.Options{
 		Name:         "mote",
 		Model:        "fake-1",
-		Conversation: "demo-" + time.Now().Format("150405"),
+		Conversation: id,
+		Session:      sess,
 		Palette:      &pal,
-		Greeting: "# mote demo\n\n" +
-			"This is the terminal, over a scripted agent. Say anything and it " +
-			"answers; the turns cycle through **markdown**, a **tool round**, " +
-			"and an **error**, or say a line with `tool` or `error` in it to " +
-			"pick one.\n\n" +
-			"`ctrl+o` opens the last tool card · `tab` walks the cards · " +
-			"`ctrl+t` hides the rail · `/help` for the rest.",
-		Side:      f.snapshot,
-		SideTitle: "fleet",
-		Notices:   notices,
+		Greeting:     greeting(sess),
+		Side:         f.snapshot,
+		SideTitle:    "fleet",
+		Notices:      notices,
 		Commands: []tui.Command{
 			{Name: "tasks", Help: "the fleet, as lines in the transcript"},
 			{Name: "report", Help: "/report <id> — what a task wrote"},
 			{Name: "start", Help: "/start <brief> — put another task on the rail"},
-			{Name: "new", Help: "a fresh conversation id"},
+			{Name: "new", Help: "a fresh conversation, in its own file"},
+			{Name: "sessions", Help: "the conversations on disk"},
 			{Name: "quit", Help: "leave"},
 		},
 		Handle: func(name, args string) tea.Cmd {
@@ -81,14 +99,83 @@ func demo(args []string) error {
 				id := f.add(args)
 				return tea.Batch(tui.Note("started %s", id), tui.Refresh())
 			case "new":
-				id := "demo-" + time.Now().Format("150405")
-				return tea.Batch(tui.SetConversation(id), tui.Note("new conversation %s", id))
+				id := newConversation()
+				next, err := session.Open(sdir, id)
+				if err != nil {
+					return tui.Fail("session: %v", err)
+				}
+				return tea.Batch(tui.SetConversation(id), tui.SetSession(next),
+					tui.Note("new conversation %s — the old one is still in %s", id, sdir))
+			case "sessions":
+				list, err := session.List(sdir)
+				if err != nil {
+					return tui.Fail("session: %v", err)
+				}
+				var b strings.Builder
+				for _, it := range list {
+					here := ""
+					if it.ID == sess.ID() {
+						here = "  ← this one"
+					}
+					fmt.Fprintf(&b, "%s  %s%s\n", it.ID, summarize(it), here)
+				}
+				if b.Len() == 0 {
+					return tui.Note("no conversations in %s", sdir)
+				}
+				return tui.Note("%s", strings.TrimRight(b.String(), "\n"))
 			case "quit":
 				return tea.Quit
 			}
 			return tui.Fail("unknown command /%s — /help", name)
 		},
 	})
+}
+
+func newConversation() string { return "demo-" + time.Now().Format("20060102-150405") }
+
+// openFiles is every conversation file this run has opened, so that
+// they can all be closed when it ends.
+type openFiles struct {
+	mu   sync.Mutex
+	list []*session.Session
+}
+
+func (o *openFiles) add(s *session.Session) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.list = append(o.list, s)
+}
+
+func (o *openFiles) closeAll() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, s := range o.list {
+		s.Close()
+	}
+}
+
+// greeting is what the demo says once, at the top. It names the file
+// the conversation is being written to, because a person who quits
+// and comes back needs to know it was kept and where.
+func greeting(sess *session.Session) string {
+	resumed := ""
+	if n := len(sess.Turns()); n > 0 {
+		turns := "turns"
+		if n == 1 {
+			turns = "turn"
+		}
+		resumed = fmt.Sprintf("Reopened **%s** — %d %s above, from `%s`.\n\n",
+			sess.ID(), n, turns, sess.Path())
+	}
+	return "# mote demo\n\n" + resumed +
+		"This is the terminal, over a scripted agent. Say anything and it " +
+		"answers; the turns cycle through **markdown**, a **tool round**, a " +
+		"**long command streaming its output**, and an **error** — or say a " +
+		"line with `tool`, `test` or `error` in it to pick one.\n\n" +
+		"`ctrl+o` opens the last tool card · `tab` walks the cards · " +
+		"`ctrl+t` hides the rail · `/help` for the rest.\n\n" +
+		"Kept in `" + sess.Path() + "` — `mote sessions` lists them, " +
+		"`mote demo -c " + sess.ID() + "` reopens this one.\n"
 }
 
 // fleet is a made-up set of tasks that changes on its own, so the rail
