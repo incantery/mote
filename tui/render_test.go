@@ -188,6 +188,53 @@ func TestResize(t *testing.T) {
 	}
 }
 
+// tasks is a fleet of n, for a rail that has to say what it dropped.
+func tasks(n int) []SideItem {
+	titles := []string{"build mote's first milestone", "tool registry with policy",
+		"session on disk, resumable", "anthropic-native provider", "mcp, as a tool source",
+		"the rail says what it dropped", "a notice with an identity", "cost, per provider",
+		"publish the module"}
+	states := []State{Working, Idle, Blocked, Done, Failed}
+	out := make([]SideItem, 0, n)
+	for i := range n {
+		out = append(out, SideItem{
+			ID:       fmt.Sprintf("%08x", 0x184a1100+i*0x9e37),
+			Title:    titles[i%len(titles)],
+			Subtitle: "mote",
+			State:    states[i%len(states)],
+			Current:  i == 0,
+		})
+	}
+	return out
+}
+
+// A rail with more in it than there is room for says how much more.
+// "Four tasks" and "four of nine" are different situations and a
+// person acts on them differently.
+func TestSideSaysWhatDidNotFit(t *testing.T) {
+	items := tasks(9)
+	m := plain(t, 120, 30, Options{Name: "mote", Side: func() []SideItem { return items }, SideTitle: "fleet"})
+
+	// Room for the title, the rule and four items, and one line left
+	// over for the count.
+	rail := m.renderSide(32, 11)
+	if !strings.Contains(rail, "+5 more") {
+		t.Errorf("the rail dropped five tasks without saying so:\n%s", rail)
+	}
+	if strings.Contains(rail, items[4].Title) {
+		t.Errorf("the fifth task should not have fitted:\n%s", rail)
+	}
+	if n := len(strings.Split(rail, "\n")); n != 11 {
+		t.Errorf("the rail is %d lines, want 11", n)
+	}
+
+	// Given the room, it says nothing about what did not fit.
+	if rail := m.renderSide(32, 30); strings.Contains(rail, "more") {
+		t.Errorf("everything fitted; the rail should not be counting:\n%s", rail)
+	}
+	golden(t, "rail-32x11.txt", m.renderSide(32, 11))
+}
+
 // The rail is a rail: it appears on the right, and it goes away when
 // the window is too narrow to deserve it.
 func TestSidePane(t *testing.T) {

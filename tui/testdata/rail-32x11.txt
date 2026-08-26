@@ -1,0 +1,11 @@
+│ fleet                         
+│ ──────────────────────────────
+│ ▸ ● build mote's first milest…
+│     184a1100 · working · mote 
+│   · tool registry with policy 
+│     184aaf37 · idle · mote    
+│   ! session on disk, resumable
+│     184b4d6e · blocked · mote 
+│   ✓ anthropic-native provider 
+│     184beba5 · done · mote    
+│   +5 more                     
