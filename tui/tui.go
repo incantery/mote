@@ -11,8 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
 	"github.com/incantery/mote/agent"
 	"github.com/incantery/mote/session"
 )
@@ -82,19 +81,22 @@ type Options struct {
 	Notices <-chan agent.Event
 
 	// Palette is the colour. Nil means DefaultPalette.
+	//
+	// There is no renderer to resolve it against: in lipgloss v2 a
+	// colour is a value and a style is a value, and what the terminal
+	// can actually paint is decided once, by bubbletea, on the way
+	// out. Whether the terminal is dark or light is decided the same
+	// way — see Model.Init.
 	Palette *Palette
-	// Renderer decides what colour actually reaches the screen. Nil
-	// means lipgloss's default, which looks at the real terminal; a
-	// test hands one that writes nowhere and paints nothing.
-	Renderer *lipgloss.Renderer
 
 	// Placeholder is the ghost text in an empty input.
 	Placeholder string
 	// Greeting is markdown shown once, above the first exchange.
 	Greeting string
 
-	// AltScreen and Mouse apply to Run only. Both default on; set
-	// NoAltScreen or NoMouse to turn them off.
+	// AltScreen and Mouse are fields of the frame in bubbletea v2, so
+	// they are decided by View and apply however the Model is run.
+	// Both default on; set NoAltScreen or NoMouse to turn them off.
 	NoAltScreen bool
 	NoMouse     bool
 }
@@ -122,31 +124,16 @@ func (o *Options) fill() {
 		p := DefaultPalette()
 		o.Palette = &p
 	}
-	if o.Renderer == nil {
-		o.Renderer = lipgloss.DefaultRenderer()
-	}
 }
 
 // Run puts the terminal on the screen and returns when it closes.
 //
-// New comes first, deliberately: it settles what colour the terminal
-// is before anything owns stdin, so that nothing has to ask afterwards.
-// One question is still asked, and it is not ours — bubbletea v1 asks
-// the terminal for its background in its own package init, before main
-// runs, which nothing in this process can get in front of. A terminal
-// that answers answers in microseconds; one that never answers costs
-// termenv's five-second timeout, once, before the first frame. It is
-// gone in bubbletea v2.
+// There is nothing to set up here any more. The alt screen and the
+// mouse are fields of the frame the Model draws, and what colour the
+// terminal is is asked for after the first frame rather than before
+// it — so Run is the program, and nothing blocks in front of it.
 func Run(a agent.Agent, opts Options) error {
-	m := New(a, opts)
-	var popts []tea.ProgramOption
-	if !opts.NoAltScreen {
-		popts = append(popts, tea.WithAltScreen())
-	}
-	if !opts.NoMouse {
-		popts = append(popts, tea.WithMouseCellMotion())
-	}
-	_, err := tea.NewProgram(m, popts...).Run()
+	_, err := tea.NewProgram(New(a, opts)).Run()
 	return err
 }
 

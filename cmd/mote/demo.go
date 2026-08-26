@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/incantery/mote/agent"
 	"github.com/incantery/mote/session"
 	"github.com/incantery/mote/tui"
@@ -210,9 +210,13 @@ func greeting(sess *session.Session) string {
 		"than repeating. The right of the status line is the fleet in a " +
 		"phrase, refreshed with the rail. `/new` moves the conversation " +
 		"and `/sessions` knows it did.\n\n" +
-		"Nothing here asked the terminal what colour it is — that was " +
-		"settled before the program started, which is why the input box " +
-		"is empty. `-style` and `-light` say it outright.\n\n" +
+		"The terminal was asked what colour it is, and nobody waited for " +
+		"the answer: this frame was drawn with the safe guess, and if " +
+		"your terminal answers, the reply arrives as a message and the " +
+		"markdown is drawn again in the style it chose. A terminal that " +
+		"never answers costs nothing. `-style` and `-light` say it " +
+		"outright and neither the terminal nor the environment overrules " +
+		"them. The cursor in the box is your terminal's own.\n\n" +
 		"Kept in `" + sess.Path() + "` — `mote sessions` lists them, " +
 		"`mote demo -c " + sess.ID() + "` reopens this one.\n"
 }

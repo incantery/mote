@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -107,5 +108,5 @@ func (m *Model) renderSide(w, h int) string {
 	for i, l := range lines {
 		lines[i] = m.st.sideRule.Render("│ ") + l
 	}
-	return m.r.NewStyle().Width(w).MaxWidth(w).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().Width(w).MaxWidth(w).Render(strings.Join(lines, "\n"))
 }

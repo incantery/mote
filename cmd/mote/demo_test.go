@@ -1,17 +1,15 @@
 package main
 
 import (
-	"io"
 	"strings"
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
 	"github.com/incantery/mote/session"
 	"github.com/incantery/mote/tui"
-	"github.com/muesli/termenv"
 )
 
 // screen builds the demo's terminal — the same fleet, the same
@@ -31,7 +29,6 @@ func screen(t *testing.T, w, h int) (*tui.Model, *fleet) {
 		Name: "mote", Model: "fake-1", Conversation: "demo-1",
 		Session:     sess,
 		Palette:     &pal,
-		Renderer:    lipgloss.NewRenderer(io.Discard, termenv.WithProfile(termenv.Ascii)),
 		Greeting:    greeting(sess),
 		Side:        f.snapshot,
 		SideTitle:   "fleet",
@@ -40,6 +37,10 @@ func screen(t *testing.T, w, h int) (*tui.Model, *fleet) {
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return m, f
 }
+
+// view is the frame's content with the colour taken off, which is
+// what a person reads.
+func view(m *tui.Model) string { return ansi.Strip(m.View().Content) }
 
 // rail is the right-hand column of the screen, on its own.
 func rail(view string) string {
@@ -56,11 +57,11 @@ func rail(view string) string {
 // the size people actually have.
 func TestDemoShowsTheLot(t *testing.T) {
 	m, f := screen(t, 120, 30)
-	view := m.View()
-	t.Logf("\n%s", view)
+	screen := view(m)
+	t.Logf("\n%s", screen)
 
 	// A rail longer than the pane, and a count of what did not fit.
-	side := rail(view)
+	side := rail(screen)
 	if !strings.Contains(side, " more") {
 		t.Errorf("the rail fitted all %d tasks at 120x30, so it shows nothing:\n%s", len(f.items), side)
 	}
@@ -73,14 +74,14 @@ func TestDemoShowsTheLot(t *testing.T) {
 	if got := f.summary(); got != want {
 		t.Errorf("summary() = %q, want %q", got, want)
 	}
-	last := view[strings.LastIndex(view, "\n")+1:]
+	last := screen[strings.LastIndex(screen, "\n")+1:]
 	if !strings.Contains(last, want) {
 		t.Errorf("the status line does not carry the fleet: %q", last)
 	}
 
 	// Given the room, the rail says nothing about what did not fit.
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	if side := rail(m.View()); strings.Contains(side, " more") {
+	if side := rail(view(m)); strings.Contains(side, " more") {
 		t.Errorf("everything fits at 120x40; the rail should not be counting:\n%s", side)
 	}
 }

@@ -269,7 +269,7 @@ const errorReply = `Let me look at the provider's rate limits before I
 answer that — the last three calls all came back slower than
 `
 
-const testOutput = `go: downloading github.com/charmbracelet/bubbletea v1.3.10
+const testOutput = `go: downloading charm.land/bubbletea/v2 v2.0.9
 === RUN   TestFakeIsDeterministic
 --- PASS: TestFakeIsDeterministic (0.00s)
 === RUN   TestFakeDeltasReassemble

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func box(t *testing.T) *Model {
@@ -202,5 +202,48 @@ func TestUnknownCommandWithoutHandler(t *testing.T) {
 	last := m.entries[len(m.entries)-1]
 	if last.kind != entryError || !strings.Contains(last.text, "/nope") {
 		t.Fatalf("got %v %q", last.kind, last.text)
+	}
+}
+
+// The cursor is the terminal's own: bubbletea v2 puts it in the frame,
+// so the block a person sees blinking is the real one, in the place
+// the box says it is — not a styled cell drawn into the transcript.
+func TestTheCursorIsTheTerminals(t *testing.T) {
+	m := box(t)
+	typeIn(m, "hello")
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatal("no cursor in the frame; the person cannot see where they are typing")
+	}
+	// "› " is the prompt, then five characters of "hello".
+	if v.Cursor.X != 2+len("hello") {
+		t.Errorf("cursor at column %d, want %d", v.Cursor.X, 2+len("hello"))
+	}
+	// The box sits under the transcript and the rule.
+	if want := m.vp.Height() + 1; v.Cursor.Y != want {
+		t.Errorf("cursor on line %d, want %d", v.Cursor.Y, want)
+	}
+	// It is on the line being typed, whichever that is.
+	step(m, kmsg("alt+enter"))
+	typeIn(m, "again")
+	if v := m.View(); v.Cursor.Y != m.vp.Height()+2 {
+		t.Errorf("after a newline the cursor is on line %d, want %d", v.Cursor.Y, m.vp.Height()+2)
+	}
+
+	// The completion list pushes the box down, and the cursor with it.
+	m.in.reset()
+	m.layout()
+	typeIn(m, "/re")
+	if n := len(m.renderSuggestions(100)); n != 2 {
+		t.Fatalf("%d suggestions", n)
+	}
+	if v, want := m.View(), m.vp.Height()+2+1; v.Cursor.Y != want {
+		t.Errorf("with the list open the cursor is on line %d, want %d", v.Cursor.Y, want)
+	}
+
+	// Nobody is typing: no cursor.
+	m.in.ta.Blur()
+	if v := m.View(); v.Cursor != nil {
+		t.Errorf("a blurred box still asked for a cursor at %v", v.Cursor.Position)
 	}
 }

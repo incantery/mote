@@ -5,10 +5,10 @@
       Send(ctx context.Context, conversation, text string) (<-chan Event, error)
   }                                                                             
                                                                                 
- agent                    | where                   | transport                 
---------------------------|-------------------------|-------------------------  
- demo                     | here                    | a channel                 
- vera                     | verad                   | HTTP                      
+ agent                    | where                    | transport                
+--------------------------|--------------------------|--------------------------
+ demo                     | here                     | a channel                
+ vera                     | verad                    | HTTP                     
                                                                                 
   ▸ ✓ read_file  path=README.md limit=200                         1.42s  $0.0021
                                                                                 

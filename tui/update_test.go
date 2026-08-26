@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/incantery/mote/agent"
 )
 
@@ -174,12 +174,12 @@ func TestCardExpansion(t *testing.T) {
 	if m.focus != 0 {
 		t.Fatalf("focus %d", m.focus)
 	}
-	before := m.vp.YOffset
+	before := m.vp.YOffset()
 	step(m, kmsg("pgdown"))
 	if card.offset != resultLines {
 		t.Fatalf("result offset %d", card.offset)
 	}
-	if m.vp.YOffset != before {
+	if m.vp.YOffset() != before {
 		t.Fatal("the transcript scrolled instead of the card")
 	}
 	// And it stops at the end rather than running off it.
@@ -254,12 +254,12 @@ func TestFollowsTailUntilScrolled(t *testing.T) {
 	if m.follow {
 		t.Fatal("scrolling up should stop the following")
 	}
-	at := m.vp.YOffset
+	at := m.vp.YOffset()
 	step(m, events(agent.Delta("more\n\n"))...)
-	if m.vp.YOffset != at {
+	if m.vp.YOffset() != at {
 		t.Fatal("a delta yanked the view back down")
 	}
-	step(m, tea.KeyMsg{Type: tea.KeyCtrlL})
+	step(m, kmsg("ctrl+l"))
 	if !m.follow || !m.vp.AtBottom() {
 		t.Fatal("ctrl+l should return to the tail")
 	}
@@ -328,7 +328,7 @@ func TestPolling(t *testing.T) {
 		t.Fatalf("the status line was not asked at all: %q", m.statusLine())
 	}
 	step(m, pollTick{})
-	if !strings.Contains(m.View(), "poll !!") {
+	if !strings.Contains(view(m), "poll !!") {
 		t.Fatalf("the rail did not repoll; calls=%d", n)
 	}
 	if !strings.Contains(m.statusLine(), "window 2") {

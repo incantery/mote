@@ -6,10 +6,9 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
-	"github.com/muesli/termenv"
 )
 
 const reply = `## the seam
@@ -77,7 +76,7 @@ func TestMarkdownUsesTheWholeWidth(t *testing.T) {
 		"and the rail on the right is every task."
 	for _, style := range []string{"ascii", "dark", "light", "notty"} {
 		t.Run(style, func(t *testing.T) {
-			md := newMarkdown(style, termenv.ANSI256)
+			md := newMarkdown(style)
 			wide := md.render(line, 200, false)
 			if strings.Contains(wide, "\n") {
 				t.Fatalf("200 columns was not enough for one sentence:\n%s", wide)
@@ -124,7 +123,8 @@ func TestExpandedCardGolden(t *testing.T) {
 }
 
 // The whole screen, at the two sizes the brief names. The input is
-// blurred so no cursor lands in the golden file.
+// blurred so that the box is drawn the way an unfocused one is; the
+// cursor is a field of the frame now and was never in the content.
 func TestScreenGolden(t *testing.T) {
 	side := func() []SideItem {
 		return []SideItem{
@@ -141,7 +141,7 @@ func TestScreenGolden(t *testing.T) {
 				Side: side, SideTitle: "fleet",
 			})
 			m.in.ta.Blur()
-			golden(t, fmt.Sprintf("screen-%dx%d.txt", sz.w, sz.h), m.View())
+			golden(t, fmt.Sprintf("screen-%dx%d.txt", sz.w, sz.h), view(m))
 		})
 	}
 }
@@ -157,7 +157,7 @@ func TestScreenFits(t *testing.T) {
 			},
 		})
 		m.in.ta.Blur()
-		lines := strings.Split(m.View(), "\n")
+		lines := strings.Split(view(m), "\n")
 		if len(lines) != sz.h {
 			t.Errorf("%dx%d: %d lines, want %d", sz.w, sz.h, len(lines), sz.h)
 		}
@@ -174,7 +174,7 @@ func TestResize(t *testing.T) {
 	m := withScene(t, 200, 50, Options{Name: "mote"})
 	for _, sz := range []struct{ w, h int }{{80, 24}, {200, 50}, {100, 30}, {80, 24}} {
 		step(m, tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
-		lines := strings.Split(m.View(), "\n")
+		lines := strings.Split(view(m), "\n")
 		if len(lines) != sz.h {
 			t.Fatalf("after resize to %dx%d: %d lines", sz.w, sz.h, len(lines))
 		}
@@ -245,15 +245,15 @@ func TestSidePane(t *testing.T) {
 	if !m.sideVisible() {
 		t.Fatal("the rail should be open at 120 columns")
 	}
-	if !strings.Contains(m.View(), "fleet") {
+	if !strings.Contains(view(m), "fleet") {
 		t.Fatal("the rail is not on screen")
 	}
-	if m.vp.Width >= 120 {
-		t.Fatalf("the transcript did not make room: width %d", m.vp.Width)
+	if m.vp.Width() >= 120 {
+		t.Fatalf("the transcript did not make room: width %d", m.vp.Width())
 	}
 
 	step(m, kmsg("ctrl+t"))
-	if m.sideVisible() || strings.Contains(m.View(), "fleet") {
+	if m.sideVisible() || strings.Contains(view(m), "fleet") {
 		t.Fatal("ctrl+t should hide the rail")
 	}
 	step(m, kmsg("ctrl+t"))
@@ -262,7 +262,7 @@ func TestSidePane(t *testing.T) {
 	if m.sideVisible() {
 		t.Fatal("the rail must hide itself below the width threshold")
 	}
-	if m.vp.Width != 80 {
-		t.Fatalf("the transcript should take the whole width: %d", m.vp.Width)
+	if m.vp.Width() != 80 {
+		t.Fatalf("the transcript should take the whole width: %d", m.vp.Width())
 	}
 }

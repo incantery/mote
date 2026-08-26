@@ -7,11 +7,9 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
 	"github.com/incantery/mote/agent"
 	"github.com/incantery/mote/session"
-	"github.com/muesli/termenv"
 )
 
 // watched wraps an agent and says when an exchange has finished, so a
@@ -54,20 +52,21 @@ func TestProgramRunsAnExchange(t *testing.T) {
 		Conversation: "test-1",
 		Session:      sess,
 		Palette:      &pal,
-		Renderer:     lipgloss.NewRenderer(io.Discard, termenv.WithProfile(termenv.Ascii)),
 		Side:         func() []SideItem { return []SideItem{{ID: "x", Title: "a task", State: Working}} },
 		SideTitle:    "fleet",
 	})
 
 	in, _ := io.Pipe() // nothing ever arrives; every key goes in by Send
-	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(io.Discard))
+	// The window is given rather than measured: nothing here is a
+	// terminal, and a program that measured one would start at 0x0.
+	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(io.Discard),
+		tea.WithWindowSize(120, 30))
 
 	go func() {
-		p.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 		for _, r := range "tell me about tools" {
-			p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			p.Send(tea.KeyPressMsg{Code: r, Text: string(r)})
 		}
-		p.Send(tea.KeyMsg{Type: tea.KeyEnter})
+		p.Send(tea.KeyPressMsg{Code: tea.KeyEnter})
 		select {
 		case <-w.done:
 		case <-time.After(10 * time.Second):
@@ -98,7 +97,7 @@ func TestProgramRunsAnExchange(t *testing.T) {
 			t.Errorf("the transcript is missing %q:\n%s", want, text)
 		}
 	}
-	if !strings.Contains(got.View(), "fleet") {
+	if !strings.Contains(view(got), "fleet") {
 		t.Error("the rail is not on screen")
 	}
 
@@ -121,7 +120,6 @@ func TestProgramRunsAnExchange(t *testing.T) {
 	reopened := New(&agent.Fake{Instant: true}, Options{
 		Name: "mote", Model: "fake-1", Conversation: "test-1", Session: again,
 		Palette:   &pal,
-		Renderer:  lipgloss.NewRenderer(io.Discard, termenv.WithProfile(termenv.Ascii)),
 		Side:      func() []SideItem { return []SideItem{{ID: "x", Title: "a task", State: Working}} },
 		SideTitle: "fleet",
 	})

@@ -5,10 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
 	"github.com/incantery/mote/session"
@@ -23,9 +22,16 @@ const frameRate = 100 * time.Millisecond
 type Model struct {
 	agent agent.Agent
 	opts  Options
-	r     *lipgloss.Renderer
 	st    styles
 	md    *markdown
+
+	// What the terminal turned out to be. dark starts as a guess and
+	// becomes an answer if the terminal gives one; noColor is set when
+	// bubbletea says nothing can be painted at all. Either one moving
+	// re-decides the markdown style, and nothing else: the palette is
+	// ANSI 1–6 and 8 on purpose, and reads on both.
+	dark    bool
+	noColor bool
 
 	conversation string
 	width        int
@@ -87,30 +93,23 @@ type (
 
 // New builds the terminal over an agent.
 //
-// It decides the markdown style here, once, from the renderer and the
-// environment — see resolveStyle. Nothing after this asks the terminal
-// anything, which is why New has to be called before whatever is going
-// to own stdin does: Run does exactly that.
+// It settles on a markdown style here, from what is known without
+// asking anybody: the Palette, the environment, and dark as the guess
+// that reads either way. It is a guess, not a question — the question
+// goes out with the first frame, and the answer, if one comes, is
+// folded in by Update. Nothing here blocks on a terminal.
 func New(a agent.Agent, opts Options) *Model {
 	opts.fill()
-	st := newStyles(opts.Renderer, *opts.Palette)
-	profile := opts.Renderer.ColorProfile()
-	style := resolveStyle(opts.Palette.Markdown, profile)
-	// Glamour is not the only one who could ask: a lipgloss
-	// AdaptiveColor asks the renderer what colour the terminal is, the
-	// first time one is drawn. Told the answer here — from the same
-	// decision the markdown style came from — it never asks. When the
-	// application supplied no renderer this is lipgloss's own, which
-	// is the one everything else drawing through lipgloss uses.
-	opts.Renderer.SetHasDarkBackground(darkBackground(style))
+	st := newStyles(*opts.Palette)
+	dark := darkDefault()
 	m := &Model{
 		agent:        a,
 		opts:         opts,
-		r:            opts.Renderer,
 		st:           st,
-		md:           newMarkdown(style, profile),
+		dark:         dark,
+		md:           newMarkdown(resolveStyle(opts.Palette.Markdown, false, dark)),
 		conversation: opts.Conversation,
-		vp:           viewport.New(0, 0),
+		vp:           viewport.New(),
 		follow:       true,
 		in:           newInput(st, opts.Placeholder),
 		focus:        -1,
@@ -213,8 +212,16 @@ func (m *Model) commands() []Command {
 	return append(cmds, Command{Name: "help", Help: "the keys, and these commands"})
 }
 
+// Init starts everything that has to be waited for, and asks the one
+// question worth asking.
+//
+// The background is requested rather than read: bubbletea writes the
+// query and carries on, the first frame is drawn with the guess New
+// made, and a terminal that answers is folded in when it does. A
+// terminal that never answers costs nothing — there is nothing
+// waiting on it.
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textarea.Blink, m.waitEvent()}
+	cmds := []tea.Cmd{tea.RequestBackgroundColor, m.waitEvent()}
 	if m.opts.Notices != nil {
 		cmds = append(cmds, m.pumpNotices())
 	}
@@ -269,6 +276,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.ready = true
 		m.layout()
+		return m, nil
+
+	case tea.BackgroundColorMsg:
+		// The terminal answered. This is the only thing that answer
+		// decides, and it is decided once: an explicit style in the
+		// Palette or GLAMOUR_STYLE means resolveStyle hands back what
+		// it was already using and nothing is redrawn.
+		m.dark = msg.IsDark()
+		m.restyle()
+		return m, nil
+
+	case tea.ColorProfileMsg:
+		// Nothing that can carry colour at all: a file, or TERM=dumb.
+		m.noColor = noColor(msg.Profile)
+		m.restyle()
 		return m, nil
 
 	case tickMsg:
@@ -334,7 +356,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.follow = m.vp.AtBottom()
 		return m, cmd
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.key(msg)
 	}
 
@@ -343,7 +365,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -812,17 +834,36 @@ func (m *Model) layout() {
 	h := max(m.height-chrome, 3)
 	w := max(m.width-m.sideWidth(), 20)
 	m.in.ta.SetWidth(max(m.width-2, 20))
-	if m.vp.Width == w && m.vp.Height == h {
+	if m.vp.Width() == w && m.vp.Height() == h {
 		return // typing does not move anything; do not redraw the transcript
 	}
-	if m.vp.Width != w {
+	if m.vp.Width() != w {
 		m.resetStable()
 	}
-	m.vp.Width, m.vp.Height = w, h
+	m.vp.SetWidth(w)
+	m.vp.SetHeight(h)
 	m.refresh()
 }
 
 func (m *Model) resetStable() { m.stable, m.stableN, m.stableW = "", 0, 0 }
+
+// restyle re-decides the markdown style now that something is known
+// about the terminal that was not known before. The style is the only
+// thing the answer moves, and moving it means every reply already on
+// screen was drawn with the other one — so the whole transcript is
+// dropped and rendered again, once.
+func (m *Model) restyle() {
+	style := resolveStyle(m.opts.Palette.Markdown, m.noColor, m.dark)
+	if style == m.md.style {
+		return
+	}
+	m.md = newMarkdown(style)
+	for _, e := range m.entries {
+		e.invalidate()
+	}
+	m.resetStable()
+	m.refresh()
+}
 
 // refresh rebuilds what the viewport shows and keeps it at the tail
 // unless the person has scrolled away from it.
@@ -840,7 +881,7 @@ func (m *Model) refresh() {
 // come out of the cache; only the tail — a tool still running, the
 // reply still arriving — is drawn again.
 func (m *Model) transcript() string {
-	w := m.vp.Width
+	w := m.vp.Width()
 	if m.stableW != w {
 		m.resetStable()
 		m.stableW = w
@@ -876,20 +917,48 @@ func (m *Model) transcript() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (m *Model) View() string {
+// View is the whole frame: the screen, and everything about the
+// terminal that goes with it. In bubbletea v2 the alt screen, the
+// mouse and the cursor are fields of the frame rather than options to
+// the program, so they are decided here, where what is on screen is.
+func (m *Model) View() tea.View {
+	var v tea.View
+	v.AltScreen = !m.opts.NoAltScreen
+	if !m.opts.NoMouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	if !m.ready {
-		return ""
+		return v
 	}
 	body := m.vp.View()
 	if m.sideVisible() {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, body, m.renderSide(m.sideWidth(), m.vp.Height))
+		body = lipgloss.JoinHorizontal(lipgloss.Top, body, m.renderSide(m.sideWidth(), m.vp.Height()))
 	}
+	suggestions := m.renderSuggestions(m.width)
 	parts := []string{body}
-	parts = append(parts, m.renderSuggestions(m.width)...)
+	parts = append(parts, suggestions...)
 	parts = append(parts, m.st.rule.Render(strings.Repeat("─", max(m.width, 1))))
 	parts = append(parts, m.in.ta.View())
 	parts = append(parts, m.statusLine())
-	return strings.Join(parts, "\n")
+	v.SetContent(strings.Join(parts, "\n"))
+	// The box starts under the transcript, the completion list and the
+	// rule — every one of which is a known number of lines.
+	v.Cursor = m.cursor(m.vp.Height() + len(suggestions) + 1)
+	return v
+}
+
+// cursor is the input's, moved to where the input actually is on the
+// screen. The box reports its cursor relative to itself; row is the
+// line the box starts on. Nil when the box is blurred, which is what
+// hides the cursor — a test that draws the screen with no one typing
+// gets a frame with no cursor in it.
+func (m *Model) cursor(row int) *tea.Cursor {
+	c := m.in.ta.Cursor()
+	if c == nil {
+		return nil
+	}
+	c.Y += row
+	return c
 }
 
 // statusLine is who is answering, on what, in which conversation, and
