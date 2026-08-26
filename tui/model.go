@@ -134,6 +134,21 @@ func New(a agent.Agent, opts Options) *Model {
 	return m
 }
 
+// Conversation is the id exchanges are being sent under.
+func (m *Model) Conversation() string { return m.conversation }
+
+// setConversation is the one place the id moves, so it is the one
+// place the application has to be told about it.
+func (m *Model) setConversation(id string) {
+	if id == m.conversation {
+		return
+	}
+	m.conversation = id
+	if m.opts.OnConversation != nil {
+		m.opts.OnConversation(id)
+	}
+}
+
 // restore rebuilds the transcript from the file. It folds the stored
 // events through the same apply the live ones go through, so what a
 // reopened conversation looks like is not a second rendering that has
@@ -296,7 +311,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case convMsg:
-		m.conversation = msg.id
+		m.setConversation(msg.id)
 		return m, nil
 
 	case sessionMsg:

@@ -26,6 +26,14 @@ type Options struct {
 	// Conversation is the id passed to every Send. The application can
 	// change it later with SetConversation.
 	Conversation string
+	// OnConversation is told the id whenever it changes — which is to
+	// say whenever a SetConversation lands, because the terminal never
+	// picks one itself. It is how an application that called Run
+	// learns what /new decided; one that embedded the Model can read
+	// Model.Conversation instead. It is called on the UI goroutine, so
+	// keep the id and get out. Nothing calls it for Conversation
+	// above: the application chose that one.
+	OnConversation func(string)
 
 	// Side supplies the rail on the right. It is called on a timer and
 	// after every exchange, on the UI goroutine, so it must be quick —

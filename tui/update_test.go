@@ -325,3 +325,28 @@ func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
 }
+
+// The conversation id is not write-only: an application that called
+// Run hears about it, and one that embedded the Model can read it.
+func TestConversationIsReadable(t *testing.T) {
+	var heard []string
+	m := plain(t, 100, 30, Options{
+		Name: "mote", Conversation: "demo-1",
+		OnConversation: func(id string) { heard = append(heard, id) },
+	})
+	if m.Conversation() != "demo-1" {
+		t.Fatalf("Conversation() = %q", m.Conversation())
+	}
+	if len(heard) != 0 {
+		t.Fatalf("the application chose demo-1; it does not need telling: %q", heard)
+	}
+	step(m, SetConversation("demo-2")())
+	if m.Conversation() != "demo-2" {
+		t.Fatalf("Conversation() = %q", m.Conversation())
+	}
+	// The same id twice is not a change.
+	step(m, SetConversation("demo-2")())
+	if len(heard) != 1 || heard[0] != "demo-2" {
+		t.Fatalf("heard %q, want one demo-2", heard)
+	}
+}
