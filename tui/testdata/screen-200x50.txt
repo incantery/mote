@@ -1,20 +1,20 @@
 › why?                                                                                                                                                                  │ fleet                         
                                                                                                                                                                         │ ──────────────────────────────
-  ## the seam                                                                                                                                                           │ ▸ ● build mote's first milest…
+## the seam                                                                                                                                                             │ ▸ ● build mote's first milest…
                                                                                                                                                                         │     184a1100 · working · mote 
-  A harness is a loop over a model with tools. The pieces:                                                                                                              │   · tool registry with policy 
+A harness is a loop over a model with tools. The pieces:                                                                                                                │   · tool registry with policy 
                                                                                                                                                                         │     c41f9a02 · idle · mote    
-  • agent — the loop, and this seam                                                                                                                                     │   ! session on disk           
-  • tui — the terminal                                                                                                                                                  │     7b20e5d9 · blocked · mote 
+• agent — the loop, and this seam                                                                                                                                       │   ! session on disk           
+• tui — the terminal                                                                                                                                                    │     7b20e5d9 · blocked · mote 
                                                                                                                                                                         │   ✓ anthropic provider        
-    type Agent interface {                                                                                                                                              │     0f3c8811 · done · mote    
-        Send(ctx context.Context, conversation, text string) (<-chan Event, error)                                                                                      │                               
-    }                                                                                                                                                                   │                               
+  type Agent interface {                                                                                                                                                │     0f3c8811 · done · mote    
+      Send(ctx context.Context, conversation, text string) (<-chan Event, error)                                                                                        │                               
+  }                                                                                                                                                                     │                               
                                                                                                                                                                         │                               
-   agent                                                | where                                               | transport                                               │                               
-  ------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------    │                               
-   demo                                                 | here                                                | a channel                                               │                               
-   vera                                                 | verad                                               | HTTP                                                    │                               
+ agent                                                 | where                                                 | transport                                              │                               
+-------------------------------------------------------|-------------------------------------------------------|------------------------------------------------------  │                               
+ demo                                                  | here                                                  | a channel                                              │                               
+ vera                                                  | verad                                                 | HTTP                                                   │                               
                                                                                                                                                                         │                               
   ▸ ✓ read_file  path=README.md limit=200                                                                                                                 1.42s  $0.0021│                               
                                                                                                                                                                         │                               
@@ -22,7 +22,7 @@
                                                                                                                                                                         │                               
   ▸ ✓ shell  cmd=go test ./... -race                                                                                                                      9.84s  $0.0007│                               
                                                                                                                                                                         │                               
-  Read it. The first milestone is the terminal.                                                                                                                         │                               
+Read it. The first milestone is the terminal.                                                                                                                           │                               
                                                                                                                                                                         │                               
 ✗ upstream: 429 rate limited — retry in 12s                                                                                                                             │                               
                                                                                                                                                                         │                               

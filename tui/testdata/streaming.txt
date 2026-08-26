@@ -4,8 +4,8 @@
 
   ▸ ⠋ grep  pattern=func Send glob=**/*.go
 
-  Here is what I found so far:                                                                    
-                                                                                                  
-    func Send(                                                                                    
+Here is what I found so far:                                                                        
+                                                                                                    
+  func Send(                                                                                        
 
 ⠋ searching

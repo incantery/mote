@@ -7,7 +7,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
+	"github.com/muesli/termenv"
 )
 
 const reply = `## the seam
@@ -63,6 +65,29 @@ func withScene(t *testing.T, w, h int, opts Options) *Model {
 	step(m, kmsg("w"), kmsg("h"), kmsg("y"), kmsg("?"), kmsg("enter"))
 	step(m, conversation()...)
 	return m
+}
+
+// A line that fits its window stays on one line — at the width it
+// actually needs, not four columns wider. Glamour spends two columns
+// on a document margin, keeps two in reserve, and pads every inline
+// code span with a space either side; a greeting that was one sentence
+// long broke in the middle of itself because of it.
+func TestMarkdownUsesTheWholeWidth(t *testing.T) {
+	const line = "say something, or `/` for commands — `/help` has the keys, " +
+		"and the rail on the right is every task."
+	for _, style := range []string{"ascii", "dark", "light", "notty"} {
+		t.Run(style, func(t *testing.T) {
+			md := newMarkdown(style, termenv.ANSI256)
+			wide := md.render(line, 200, false)
+			if strings.Contains(wide, "\n") {
+				t.Fatalf("200 columns was not enough for one sentence:\n%s", wide)
+			}
+			w := lipglossWidth(strings.TrimRight(ansi.Strip(wide), " "))
+			if got := md.render(line, w, false); strings.Contains(got, "\n") {
+				t.Errorf("at %d columns — its own width — it wrapped:\n%s", w, ansi.Strip(got))
+			}
+		})
+	}
 }
 
 // The transcript has to be right at the widths people actually use.

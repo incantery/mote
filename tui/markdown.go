@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/glamour"
+	gansi "github.com/charmbracelet/glamour/ansi"
 	gstyles "github.com/charmbracelet/glamour/styles"
 	"github.com/muesli/termenv"
 )
@@ -85,16 +86,40 @@ func lightBackground(colorFGBG string) bool {
 	return l >= 0.5
 }
 
+// styleConfig is a glamour style with the two things it does to the
+// width taken back.
+//
+// A glamour style indents the whole document by two columns and keeps
+// two more in reserve on the right, and the dark and light styles pad
+// every piece of inline code with a space on each side. Four columns
+// and change is not much until a sentence is four columns too long,
+// and then a greeting that fits its window breaks in the middle of
+// itself, around the `/help` that pushed it over. The transcript has
+// its own gutters — "› " for what was said, "· " for a notice, "┃ "
+// for the focused card — so glamour's are a second margin inside them,
+// and the text is what is worth the columns.
+func styleConfig(name string) (gansi.StyleConfig, bool) {
+	cfg, ok := gstyles.DefaultStyles[name]
+	if !ok {
+		return gansi.StyleConfig{}, false
+	}
+	out := *cfg // a copy: DefaultStyles hands out the originals
+	flush := uint(0)
+	out.Document.Margin = &flush
+	out.Code.Prefix, out.Code.Suffix = "", ""
+	return out, true
+}
+
 func (md *markdown) renderer(width int) *glamour.TermRenderer {
 	if r, ok := md.byWidth[width]; ok {
 		return r
 	}
-	cfg, ok := gstyles.DefaultStyles[md.style]
+	cfg, ok := styleConfig(md.style)
 	if !ok {
 		return nil // a style nobody has: the text, as it was written
 	}
 	r, err := glamour.NewTermRenderer(
-		glamour.WithStyles(*cfg),
+		glamour.WithStyles(cfg),
 		glamour.WithColorProfile(md.profile),
 		glamour.WithWordWrap(width),
 		glamour.WithEmoji(),
