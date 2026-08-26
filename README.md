@@ -37,6 +37,10 @@ is another. A profile is a directory a person can read.
    a question, markdown at the width it was given, a rail that says
    what it dropped, a notice that can be about a thing, and a line of
    the application's own on the status bar.
+4. The charm v2 stack: the frame is a `tea.View`, the cursor in the
+   box is the terminal's own, and what colour the terminal is is asked
+   for without waiting — so the first frame is immediate even on a
+   terminal that never answers.
 
 Read `GAPS.md` for what the loop of building it through Vera turned
 up, and how each gap was classified.
