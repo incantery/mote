@@ -183,7 +183,7 @@ func (m *Model) record() session.Turn {
 		case entryReply:
 			t.Events = append(t.Events, agent.Delta(e.text))
 		case entryNotice:
-			t.Events = append(t.Events, agent.Notice(e.text))
+			t.Events = append(t.Events, agent.About(e.id, e.text))
 		case entryError:
 			t.Events = append(t.Events, agent.Fail(e.text))
 		case entryTool:
@@ -570,7 +570,14 @@ func (m *Model) apply(ev agent.Event) {
 	case agent.KindNotice:
 		// A notice belongs to the world, not to the reply, so it goes
 		// above the answer still being written rather than splitting it.
-		m.add(&entry{kind: entryNotice, text: ev.Text})
+		// One that names a thing is that thing's line: it says where
+		// the thing got to now, in the place it said it before.
+		if e := m.noticeAbout(ev.ID); e != nil {
+			e.text = ev.Text
+			e.invalidate()
+			break
+		}
+		m.add(&entry{kind: entryNotice, id: ev.ID, text: ev.Text})
 
 	case agent.KindError:
 		m.commit()
@@ -582,6 +589,26 @@ func (m *Model) apply(ev agent.Event) {
 		m.spend(ev.Cost, ev.InputTokens, ev.OutputTokens)
 		m.finish(nil)
 	}
+}
+
+// noticeAbout finds the line an identified notice has already left, so
+// that a task which changed four times keeps one line and not four. A
+// notice with no id is a moment, not a thing, and never replaces
+// anything.
+func (m *Model) noticeAbout(id string) *entry {
+	if id == "" {
+		return nil
+	}
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		e := m.entries[i]
+		if e.kind == entryNotice && e.id == id {
+			if i < m.stableN {
+				m.resetStable()
+			}
+			return e
+		}
+	}
+	return nil
 }
 
 // openCard finds the running card a tool event belongs to. An event

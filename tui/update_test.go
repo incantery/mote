@@ -350,3 +350,39 @@ func TestConversationIsReadable(t *testing.T) {
 		t.Fatalf("heard %q, want one demo-2", heard)
 	}
 }
+
+// A task that changed four times is one line saying where it got to,
+// not four lines saying how. A notice with no name is a moment and
+// keeps its place.
+func TestANoticeWithANameKeepsOneLine(t *testing.T) {
+	m := plain(t, 100, 30, Options{Name: "mote"})
+	step(m, events(
+		agent.About("184a1100", "184a1100 is working — build mote's first milestone"),
+		agent.Notice("something else happened"),
+		agent.About("c41f9a02", "c41f9a02 is idle — tool registry"),
+	)...)
+	// Drawn once, so the lines are in the cache the replacement has to
+	// get past.
+	m.transcript()
+	step(m, events(
+		agent.About("184a1100", "184a1100 is blocked — build mote's first milestone"),
+		agent.About("184a1100", "184a1100 is done — build mote's first milestone"),
+	)...)
+	if got := kinds(m); len(got) != 3 {
+		t.Fatalf("%d entries, want three: %v", len(got), got)
+	}
+	if got := m.entries[0].text; !strings.Contains(got, "is done") {
+		t.Errorf("the first line should have caught up: %q", got)
+	}
+	if got := m.entries[1].text; got != "something else happened" {
+		t.Errorf("the nameless notice moved: %q", got)
+	}
+	text := m.transcript()
+	if strings.Contains(text, "is working") || strings.Contains(text, "is blocked") {
+		t.Errorf("the transcript kept what the task used to be:\n%s", text)
+	}
+	// It says it where it said it before, not at the bottom.
+	if strings.Index(text, "184a1100") > strings.Index(text, "something else") {
+		t.Errorf("the replaced line jumped to the end:\n%s", text)
+	}
+}

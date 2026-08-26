@@ -398,3 +398,32 @@ func TestFormatting(t *testing.T) {
 		}
 	}
 }
+
+// A notice that named a thing still names it after a reopen, so the
+// task it is about goes on having one line and not two.
+func TestSessionKeepsWhatANoticeWasAbout(t *testing.T) {
+	dir := t.TempDir()
+	first := openSession(t, dir, "n")
+	m := plain(t, 100, 30, Options{Name: "mote", Conversation: "n", Session: first})
+	typeIn(m, "start something")
+	step(m, kmsg("enter"))
+	step(m, events(
+		agent.About("184a1100", "184a1100 is working"),
+		agent.Delta("started it"),
+		agent.Done(),
+	)...)
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	again := openSession(t, dir, "n")
+	back := plain(t, 100, 30, Options{Name: "mote", Conversation: "n", Session: again})
+	step(back, events(agent.About("184a1100", "184a1100 is done"))...)
+	got := back.transcript()
+	if strings.Contains(got, "is working") {
+		t.Errorf("the reopened notice lost its name and said it twice:\n%s", got)
+	}
+	if !strings.Contains(got, "is done") {
+		t.Errorf("the notice never caught up:\n%s", got)
+	}
+}

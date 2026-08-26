@@ -36,7 +36,9 @@ const (
 	// anything was streamed or not.
 	KindToolResult Kind = "tool_result"
 	// KindNotice is something that happened outside this exchange —
-	// a task finished, a file changed. It may arrive mid-reply.
+	// a task finished, a file changed. It may arrive mid-reply. An
+	// ID is optional and means the notice is about a thing rather
+	// than a moment: the next one with the same ID replaces it.
 	KindNotice Kind = "notice"
 	// KindError is a failure the person should see. It does not end
 	// the stream; KindDone does.
@@ -57,7 +59,10 @@ type Event struct {
 	// piece of a tool's output, depending on Kind.
 	Text string `json:"text,omitempty"`
 
-	// ID ties a KindToolOutput or KindToolResult to its KindToolCall.
+	// ID ties a KindToolOutput or KindToolResult to its KindToolCall,
+	// and gives a KindNotice an identity: a later notice with the same
+	// ID replaces the line the earlier one left, rather than leaving
+	// two. A notice without one is a moment and keeps its place.
 	ID string `json:"id,omitempty"`
 	// Name is the tool's name (KindToolCall).
 	Name string `json:"name,omitempty"`
@@ -107,6 +112,14 @@ func Status(text string) Event { return Event{Kind: KindStatus, Text: text} }
 
 // Notice is something that happened outside the exchange.
 func Notice(text string) Event { return Event{Kind: KindNotice, Text: text} }
+
+// About is a notice about something that has a name — a task, a file,
+// a run. The next one about the same thing replaces the line this one
+// left, so a task that changed four times says where it got to rather
+// than how it got there.
+func About(id, text string) Event {
+	return Event{Kind: KindNotice, ID: id, Text: text}
+}
 
 // Fail is an error the person should see.
 func Fail(text string) Event { return Event{Kind: KindError, Text: text} }
