@@ -67,6 +67,35 @@ type Verdict struct {
 	Path string
 }
 
+// Refused is what a call that did not run says back to the model.
+//
+// It exists because the failure it describes is invisible otherwise.
+// A policy's reason is written for a person — "start a task for that"
+// — and a model handed that sentence alone can read it as advice
+// beside a write that went through. So the sentence begins by saying
+// that nothing happened, and the reason follows it.
+//
+// The "error: " prefix is the harness's existing convention for a
+// call with no result, and the terminal already marks such a card ✗;
+// keeping it means a refusal looks like what it is everywhere a
+// failure already does.
+func Refused(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "the policy did not allow it"
+	}
+	return "error: nothing was done: " + reason
+}
+
+// Refused is the sentence for a call this verdict refused, in the
+// profile's own words when it had any.
+func (v Verdict) Refused() string { return Refused(v.Reason) }
+
+// Declined is the sentence for a call the person was asked about and
+// said no to. The reason is the person, not the policy: the rule said
+// ask, and asking is what happened.
+func Declined() string { return Refused("you were asked, and said no") }
+
 // Rule is one line of a profile's policy.
 //
 // A rule matches when every part of it that is set matches: the tool
