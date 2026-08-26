@@ -81,7 +81,7 @@ func (r Run) Paths(args json.RawMessage) []string {
 	return []string{abs}
 }
 
-func (r Run) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool.Result, error) {
+func (r Run) Run(ctx context.Context, args json.RawMessage, h tool.Handle) (tool.Result, error) {
 	var v runArgs
 	if err := decode(r.Name(), args, &v); err != nil {
 		return tool.Result{}, err
@@ -123,7 +123,7 @@ func (r Run) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool
 	// would have seen at a terminal, and because a tool card is one
 	// pane. It is written from the command's own goroutines, so it
 	// holds a lock.
-	sink := &tee{out: out}
+	sink := &tee{out: h}
 	cmd.Stdout, cmd.Stderr = sink, sink
 
 	started := time.Now()

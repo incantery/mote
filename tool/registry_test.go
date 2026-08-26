@@ -3,7 +3,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"strings"
 	"testing"
 )
 
@@ -21,7 +21,7 @@ func (s stub) Schema() json.RawMessage        { return json.RawMessage(`{"type":
 func (s stub) Paths(json.RawMessage) []string { return s.paths }
 func (s stub) Command(json.RawMessage) string { return s.cmd }
 
-func (s stub) Run(context.Context, json.RawMessage, io.Writer) (Result, error) {
+func (s stub) Run(context.Context, json.RawMessage, Handle) (Result, error) {
 	return Result{Text: s.name + " ran"}, nil
 }
 
@@ -32,7 +32,7 @@ type bare struct{}
 func (bare) Name() string            { return "bare" }
 func (bare) Description() string     { return "says nothing about itself" }
 func (bare) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
-func (bare) Run(context.Context, json.RawMessage, io.Writer) (Result, error) {
+func (bare) Run(context.Context, json.RawMessage, Handle) (Result, error) {
 	return Result{}, nil
 }
 
@@ -126,4 +126,116 @@ func TestAToolThatSaysNothingAboutItself(t *testing.T) {
 	if got := p.Decide(c); got.Decision != Ask {
 		t.Fatalf("%s, want ask", got.Decision)
 	}
+}
+
+// A profile's `tools:` list narrows around the harness's own tools
+// rather than through them: a supervisor who cannot hand work away is
+// not a supervisor, whatever her profile forgot to list.
+func TestOwnedToolsSurviveOnly(t *testing.T) {
+	r := NewRegistry(stub{name: "read"}, stub{name: "write"})
+	if err := r.Own(stub{name: "fleet"}, stub{name: "delegate"}); err != nil {
+		t.Fatal(err)
+	}
+	only, err := r.Only("read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tl := range only.List() {
+		names = append(names, tl.Name())
+	}
+	// Owned first, in the order they were owned: that is the order
+	// the model reads them in, and handing work away comes first.
+	if got := strings.Join(names, " "); got != "fleet delegate read" {
+		t.Fatalf("only(read) is %q", got)
+	}
+	if !only.Owns("fleet") || only.Owns("read") {
+		t.Fatal("ownership did not come with them")
+	}
+	// A profile that does name one does not get it twice.
+	again, err := r.Only("fleet", "write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(again.List()); got != 3 {
+		t.Fatalf("%d tools, not 3: %v", got, again.Names())
+	}
+}
+
+func TestOwnRefusesADuplicate(t *testing.T) {
+	r := NewRegistry(stub{name: "read"})
+	if err := r.Own(stub{name: "read"}); err == nil {
+		t.Fatal("owning a name already registered is an error")
+	}
+	if err := r.Own(nil); err == nil {
+		t.Fatal("owning nothing is an error")
+	}
+}
+
+// A registry changes while it is being served from: an MCP server
+// that re-lists is a Replace of what changed and a Remove of what
+// went. What was there keeps its place, so nothing moves about in
+// front of the model for no reason.
+func TestReplaceAndRemove(t *testing.T) {
+	r := NewRegistry(stub{name: "one"}, stub{name: "two"}, stub{name: "three"})
+	if err := r.Replace(stub{name: "two", cmd: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(namesOf(r), " "); got != "one two three" {
+		t.Fatalf("order after a replace is %q", got)
+	}
+	tl, _ := r.Get("two")
+	if Command(tl, nil) != "new" {
+		t.Fatal("the replacement is not the one that answers")
+	}
+	// Replacing something that was not there adds it.
+	if err := r.Replace(stub{name: "four"}); err != nil {
+		t.Fatal(err)
+	}
+	r.Remove("one", "nothing-by-that-name")
+	if got := strings.Join(namesOf(r), " "); got != "two three four" {
+		t.Fatalf("after a remove: %q", got)
+	}
+	// An owned tool that is replaced is still owned.
+	if err := r.Own(stub{name: "fleet"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Replace(stub{name: "fleet", cmd: "v2"}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Owns("fleet") {
+		t.Fatal("a replaced tool forgot whose it was")
+	}
+	r.Remove("fleet")
+	if r.Owns("fleet") {
+		t.Fatal("a removed tool is still owned")
+	}
+}
+
+// Serving and changing at once is the case Replace exists for, so it
+// is the case the race detector should be pointed at.
+func TestRegistryUnderChange(t *testing.T) {
+	r := NewRegistry(stub{name: "read"})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			_ = r.Definitions()
+			_ = r.Names()
+			_, _ = r.Get("mcp.one")
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		_ = r.Replace(stub{name: "mcp.one"})
+		r.Remove("mcp.one")
+	}
+	<-done
+}
+
+func namesOf(r *Registry) []string {
+	var out []string
+	for _, t := range r.List() {
+		out = append(out, t.Name())
+	}
+	return out
 }

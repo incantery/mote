@@ -196,7 +196,16 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 		// 2. Run it, streaming whatever it prints into the card.
 		say(agent.Call(id, c.tool, string(args)))
 		started := time.Now()
-		res, err := t.Run(ctx, args, writerTo(id, out, ctx))
+		res, err := t.Run(ctx, args, tool.Handle{
+			// What the tool prints, as it prints it.
+			Output: writerTo(id, out, ctx),
+			// The harness's own voice, for a tool with something to
+			// say before it has a result.
+			Status: func(text string) { say(agent.Status(text)) },
+			// What this harness knows about the call that the model's
+			// arguments do not say.
+			Values: map[string]any{tool.Device: "the demo", tool.Cwd: r.repo},
+		})
 		text := res.Text
 		if err != nil {
 			text = "error: " + err.Error()

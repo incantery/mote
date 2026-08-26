@@ -3,7 +3,6 @@ package profile
 import (
 	"context"
 	"encoding/json"
-	"io"
 
 	"github.com/incantery/mote/tool"
 )
@@ -16,6 +15,6 @@ func (n named) Name() string            { return string(n) }
 func (n named) Description() string     { return string(n) }
 func (n named) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 
-func (n named) Run(context.Context, json.RawMessage, io.Writer) (tool.Result, error) {
+func (n named) Run(context.Context, json.RawMessage, tool.Handle) (tool.Result, error) {
 	return tool.Result{}, nil
 }

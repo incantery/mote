@@ -3,7 +3,6 @@ package builtin
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +38,7 @@ func write(t *testing.T, path, body string) {
 
 func run(t *testing.T, tl tool.Tool, args string) string {
 	t.Helper()
-	res, err := tl.Run(context.Background(), json.RawMessage(args), io.Discard)
+	res, err := tl.Run(context.Background(), json.RawMessage(args), tool.Handle{})
 	if err != nil {
 		t.Fatalf("%s: %v", tl.Name(), err)
 	}
@@ -48,7 +47,7 @@ func run(t *testing.T, tl tool.Tool, args string) string {
 
 func fails(t *testing.T, tl tool.Tool, args string) string {
 	t.Helper()
-	_, err := tl.Run(context.Background(), json.RawMessage(args), io.Discard)
+	_, err := tl.Run(context.Background(), json.RawMessage(args), tool.Handle{})
 	if err == nil {
 		t.Fatalf("%s: wanted an error", tl.Name())
 	}
@@ -211,7 +210,7 @@ func TestRunStreamsAndReportsStatus(t *testing.T) {
 	dir := t.TempDir()
 	var streamed strings.Builder
 	res, err := Run{Dir: dir}.Run(context.Background(),
-		json.RawMessage(`{"command":"echo one; echo two 1>&2"}`), &streamed)
+		json.RawMessage(`{"command":"echo one; echo two 1>&2"}`), tool.Handle{Output: &streamed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +226,7 @@ func TestRunStreamsAndReportsStatus(t *testing.T) {
 // work with "exited 1", and cannot work with a Go error.
 func TestRunNonZeroIsAResult(t *testing.T) {
 	res, err := Run{Dir: t.TempDir()}.Run(context.Background(),
-		json.RawMessage(`{"command":"echo nope 1>&2; exit 3"}`), io.Discard)
+		json.RawMessage(`{"command":"echo nope 1>&2; exit 3"}`), tool.Handle{})
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -238,7 +237,7 @@ func TestRunNonZeroIsAResult(t *testing.T) {
 
 func TestRunTimesOut(t *testing.T) {
 	res, err := Run{Dir: t.TempDir()}.Run(context.Background(),
-		json.RawMessage(`{"command":"sleep 5","timeout":1}`), io.Discard)
+		json.RawMessage(`{"command":"sleep 5","timeout":1}`), tool.Handle{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +248,7 @@ func TestRunTimesOut(t *testing.T) {
 
 func TestRunSaysWhatItRanAndWhere(t *testing.T) {
 	dir := t.TempDir()
-	res, _ := Run{Dir: dir}.Run(context.Background(), json.RawMessage(`{"command":"true"}`), io.Discard)
+	res, _ := Run{Dir: dir}.Run(context.Background(), json.RawMessage(`{"command":"true"}`), tool.Handle{})
 	if !strings.Contains(res.Text, "$ true") || !strings.Contains(res.Text, dir) {
 		t.Fatalf("%q", res.Text)
 	}
@@ -378,7 +377,7 @@ func TestSchemasAreValidJSON(t *testing.T) {
 func TestUnreadableArguments(t *testing.T) {
 	dir := t.TempDir()
 	for _, tl := range New(dir) {
-		if _, err := tl.Run(context.Background(), json.RawMessage(`{{{`), io.Discard); err == nil {
+		if _, err := tl.Run(context.Background(), json.RawMessage(`{{{`), tool.Handle{}); err == nil {
 			t.Errorf("%s took nonsense", tl.Name())
 		}
 	}

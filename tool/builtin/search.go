@@ -67,7 +67,7 @@ func (s Search) Paths(args json.RawMessage) []string {
 	return []string{abs}
 }
 
-func (s Search) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool.Result, error) {
+func (s Search) Run(ctx context.Context, args json.RawMessage, h tool.Handle) (tool.Result, error) {
 	var v searchArgs
 	if err := decode(s.Name(), args, &v); err != nil {
 		return tool.Result{}, err

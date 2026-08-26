@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -233,6 +232,6 @@ func (s stub) Description() string { return s.name + " reads a file" }
 func (s stub) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)
 }
-func (s stub) Run(context.Context, json.RawMessage, io.Writer) (tool.Result, error) {
+func (s stub) Run(context.Context, json.RawMessage, tool.Handle) (tool.Result, error) {
 	return tool.Result{Text: "ran"}, nil
 }
