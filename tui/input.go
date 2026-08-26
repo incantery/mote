@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -66,7 +67,10 @@ func newInput(st styles, placeholder string) *input {
 		state.Placeholder = st.dim
 		state.Text = st.text
 		state.Prompt = st.dim
-		state.Selection = st.accent
+		// Selected text is the only thing in the box that needs a
+		// background, and reversing whatever is already there is a
+		// background on any terminal without naming a colour.
+		state.Selection = lipgloss.NewStyle().Reverse(true)
 	}
 	sty.Focused.Prompt = st.user
 	// No colour on the cursor: it is a real one now, and the colour it
