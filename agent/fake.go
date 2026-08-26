@@ -12,6 +12,11 @@ import (
 type Step struct {
 	After time.Duration
 	Event Event
+	// Then belongs to a KindAsk step. The Fake sends the ask, stops,
+	// and does not go on until somebody answers; Then is handed the
+	// answer and returns what happens next, in place of nothing. It
+	// is how a script has two endings without a second script.
+	Then func(choice string) []Step
 }
 
 // Fake is an agent that replays a script. It exists for two audiences
@@ -26,8 +31,9 @@ type Fake struct {
 	// Script chooses the steps for a turn. Nil means DefaultScript.
 	Script func(turn int, conversation, text string) []Step
 
-	mu   sync.Mutex
-	turn int
+	mu      sync.Mutex
+	turn    int
+	pending map[string]chan string
 }
 
 // Turn is how many exchanges this Fake has served. Scripts are chosen
@@ -43,6 +49,53 @@ func (f *Fake) SetTurn(n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.turn = n
+}
+
+// Answer is the person's word on an ask the script is waiting for.
+// It satisfies agent.Answerer, which is what makes the Fake a whole
+// agent for a terminal that shows ask cards.
+//
+// An answer to an id nothing is waiting on is dropped: the turn ended
+// while the key was on its way down, which is not a failure.
+func (f *Fake) Answer(ctx context.Context, id, choice string) error {
+	switch choice {
+	case Yes, No, Always:
+	default:
+		return errors.New("no such answer " + choice)
+	}
+	f.mu.Lock()
+	ch, ok := f.pending[id]
+	delete(f.pending, id)
+	f.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	select {
+	case ch <- choice:
+	default:
+	}
+	return nil
+}
+
+// wait parks the script on an ask. A cancelled exchange is a no —
+// there is nobody left to answer.
+func (f *Fake) wait(ctx context.Context, id string) string {
+	ch := make(chan string, 1)
+	f.mu.Lock()
+	if f.pending == nil {
+		f.pending = map[string]chan string{}
+	}
+	f.pending[id] = ch
+	f.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		f.mu.Lock()
+		delete(f.pending, id)
+		f.mu.Unlock()
+		return No
+	case choice := <-ch:
+		return choice
+	}
 }
 
 // Send replays this turn's script. It honours ctx: a cancelled
@@ -66,53 +119,76 @@ func (f *Fake) Send(ctx context.Context, conversation, text string) (<-chan Even
 		steps = append(steps, Step{Event: Done()})
 	}
 
-	instant := f.Instant
 	ch := make(chan Event, 64)
 	go func() {
 		defer close(ch)
-		for _, s := range steps {
-			if !instant && s.After > 0 {
-				t := time.NewTimer(s.After)
-				select {
-				case <-ctx.Done():
-					t.Stop()
-					ch <- Done()
-					return
-				case <-t.C:
-				}
-			}
-			select {
-			case <-ctx.Done():
-				ch <- Done()
-				return
-			case ch <- s.Event:
-			}
+		if !f.play(ctx, ch, steps) {
+			ch <- Done()
 		}
 	}()
 	return ch, nil
 }
 
+// play sends the steps, waiting where a step says to. It reports
+// whether it got to the end; a run that did not has to say done
+// itself, because the terminal is waiting for one.
+func (f *Fake) play(ctx context.Context, ch chan<- Event, steps []Step) bool {
+	for _, s := range steps {
+		if !f.Instant && s.After > 0 {
+			t := time.NewTimer(s.After)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return false
+			case <-t.C:
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case ch <- s.Event:
+		}
+		if s.Event.Kind != KindAsk {
+			continue
+		}
+		// The script stops here until the terminal says something.
+		choice := f.wait(ctx, s.Event.ID)
+		if ctx.Err() != nil {
+			return false
+		}
+		if s.Then != nil && !f.play(ctx, ch, s.Then(choice)) {
+			return false
+		}
+	}
+	return true
+}
+
 // DefaultScript picks a scene. A word in the text wins — "error" or
 // "fail" for the failure, "test", "build" or "stream" for the tool
-// that talks while it runs, "tool" or "run" for the tool round — and
-// otherwise the turns cycle, so that ten seconds of typing anything at
-// all shows the whole vocabulary.
+// that talks while it runs, "policy" or "permission" for the one that
+// stops and asks, "tool" or "run" for the tool round — and otherwise
+// the turns cycle, so that ten seconds of typing anything at all
+// shows the whole vocabulary.
 func DefaultScript(turn int, conversation, text string) []Step {
 	switch low := strings.ToLower(text); {
 	case strings.Contains(low, "error"), strings.Contains(low, "fail"):
 		return ErrorScene(text)
 	case strings.Contains(low, "stream"), strings.Contains(low, "build"), strings.Contains(low, "test"):
 		return StreamScene(text)
+	case strings.Contains(low, "policy"), strings.Contains(low, "permission"):
+		return AskScene(text)
 	case strings.Contains(low, "tool"), strings.Contains(low, "run"):
 		return ToolScene(text)
 	}
-	switch turn % 4 {
+	switch turn % 5 {
 	case 1:
 		return ToolScene(text)
 	case 2:
 		return ErrorScene(text)
 	case 3:
 		return StreamScene(text)
+	case 4:
+		return AskScene(text)
 	}
 	return MarkdownScene(text)
 }
@@ -168,6 +244,45 @@ func StreamScene(text string) []Step {
 	)
 	steps = append(steps, stream(streamReply, 300*time.Millisecond, 40*time.Millisecond)...)
 	return append(steps, Step{After: 200 * time.Millisecond, Event: Spent(0.0138, 18422, 611)})
+}
+
+// AskScene is a tool the policy will not run without a word: one call
+// that is allowed outright, then one the profile says to ask about.
+// The scene has two endings, and which one it has is the person's.
+func AskScene(text string) []Step {
+	return []Step{
+		{After: 180 * time.Millisecond, Event: Status("checking the policy")},
+		{After: 300 * time.Millisecond, Event: Call("call_1", "read",
+			`{"path":"GAPS.md","from":1,"to":40}`)},
+		{After: 600 * time.Millisecond, Event: Result("call_1", readFileResult,
+			240*time.Millisecond, 0)},
+		{
+			After: 350 * time.Millisecond,
+			Event: Asking("call_2", "write",
+				`{"path":"/tmp/scratch/notes.md","content":"# what the policy decided\n"}`,
+				"outside ~/vera and not a project — the profile says ask"),
+			Then: answered,
+		},
+	}
+}
+
+// answered is what happens after the ask, either way. A no is not an
+// error: the person answered, and the model is told what they said.
+func answered(choice string) []Step {
+	if choice == No {
+		return append([]Step{
+			{After: 150 * time.Millisecond, Event: Result("call_2", "declined", 0, 0)},
+		}, stream(declinedReply, 250*time.Millisecond, 40*time.Millisecond)...)
+	}
+	steps := []Step{
+		{After: 150 * time.Millisecond, Event: Result("call_2",
+			"created /tmp/scratch/notes.md — 34 B, 1 line", 3*time.Millisecond, 0)},
+	}
+	reply := allowedReply
+	if choice == Always {
+		reply = alwaysReply
+	}
+	return append(steps, stream(reply, 250*time.Millisecond, 40*time.Millisecond)...)
 }
 
 // ErrorScene starts a reply and then fails partway, which is the shape
@@ -288,6 +403,27 @@ files render markdown at three widths, and glamour builds a syntax
 highlighter for each.
 
 Nothing to fix.
+`
+
+const declinedReply = `Left it alone. Nothing was written.
+
+If you want it kept somewhere I may write without asking, ` + "`~/vera`" + `
+is that place — the profile says so, and the policy enforces it.
+`
+
+const allowedReply = `Written. That one was outside ` + "`~/vera`" + ` and not in a
+project, so the profile said **ask** rather than deciding for you.
+
+The next one asks too. ` + "`a`" + ` instead of ` + "`y`" + ` would have stopped it asking
+about that directory for the rest of the session.
+`
+
+const alwaysReply = `Written — and I will not ask again about
+` + "`/tmp/scratch`" + ` this session.
+
+The grant is the directory and the tool, not the file: ` + "`write`" + ` under
+` + "`/tmp/scratch`" + ` and everything below it. A different tool, or a
+different directory, is a fresh question.
 `
 
 const readFileResult = `# mote

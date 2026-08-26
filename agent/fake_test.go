@@ -8,8 +8,9 @@ import (
 	"time"
 )
 
-// drain reads a whole exchange.
-func drain(t *testing.T, ch <-chan Event) []Event {
+// drain reads a whole exchange, answering any ask the way a person
+// would have to for the turn to end at all.
+func drain(t *testing.T, f *Fake, ch <-chan Event, choice string) []Event {
 	t.Helper()
 	var out []Event
 	timeout := time.After(5 * time.Second)
@@ -20,6 +21,11 @@ func drain(t *testing.T, ch <-chan Event) []Event {
 				return out
 			}
 			out = append(out, ev)
+			if ev.Kind == KindAsk {
+				if err := f.Answer(context.Background(), ev.ID, choice); err != nil {
+					t.Fatal(err)
+				}
+			}
 		case <-timeout:
 			t.Fatal("exchange did not end")
 			return nil
@@ -29,11 +35,16 @@ func drain(t *testing.T, ch <-chan Event) []Event {
 
 func send(t *testing.T, f *Fake, text string) []Event {
 	t.Helper()
+	return answering(t, f, text, Yes)
+}
+
+func answering(t *testing.T, f *Fake, text, choice string) []Event {
+	t.Helper()
 	ch, err := f.Send(context.Background(), "c", text)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	return drain(t, ch)
+	return drain(t, f, ch, choice)
 }
 
 // An instant Fake must produce the same events for the same turn every
@@ -192,9 +203,80 @@ func TestFakeCancels(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancel()
-	evs := drain(t, ch)
+	evs := drain(t, f, ch, Yes)
 	if len(evs) == 0 || evs[len(evs)-1].Kind != KindDone {
 		t.Fatalf("cancelled exchange ended with %v", evs)
+	}
+}
+
+// The ask scene stops until it is answered, and what comes after it
+// is what the person said.
+func TestFakeAsk(t *testing.T) {
+	for _, c := range []struct{ choice, want string }{
+		{Yes, "created /tmp/scratch/notes.md"},
+		{Always, "created /tmp/scratch/notes.md"},
+		{No, "declined"},
+	} {
+		t.Run(c.choice, func(t *testing.T) {
+			f := &Fake{Instant: true}
+			evs := answering(t, f, "what does the policy say", c.choice)
+			var ask, result *Event
+			for i, ev := range evs {
+				switch ev.Kind {
+				case KindAsk:
+					ask = &evs[i]
+				case KindToolResult:
+					if ev.ID == "call_2" {
+						result = &evs[i]
+					}
+				}
+			}
+			if ask == nil {
+				t.Fatal("no ask")
+			}
+			if ask.Name != "write" || ask.Text == "" || ask.Args == "" {
+				t.Fatalf("%+v", *ask)
+			}
+			if result == nil || !strings.Contains(result.Result, c.want) {
+				t.Fatalf("after %s: %+v", c.choice, result)
+			}
+			if last := evs[len(evs)-1]; last.Kind != KindDone {
+				t.Fatalf("ends with %q", last.Kind)
+			}
+		})
+	}
+}
+
+// An ask nobody answers ends when the exchange is cancelled — it does
+// not hold the terminal open forever.
+func TestFakeAskCancelled(t *testing.T) {
+	f := &Fake{Instant: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := f.Send(ctx, "c", "what does the policy say")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evs []Event
+	for ev := range ch {
+		evs = append(evs, ev)
+		if ev.Kind == KindAsk {
+			cancel()
+		}
+	}
+	if last := evs[len(evs)-1]; last.Kind != KindDone {
+		t.Fatalf("ends with %q", last.Kind)
+	}
+}
+
+// An answer nobody is waiting for is dropped, not an error.
+func TestFakeAnswerNobodyWaitsFor(t *testing.T) {
+	f := &Fake{Instant: true}
+	if err := f.Answer(context.Background(), "call_9", Yes); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Answer(context.Background(), "call_9", "perhaps"); err == nil {
+		t.Fatal("want an error for a choice that is not one")
 	}
 }
 
@@ -202,15 +284,15 @@ func TestFakeCancels(t *testing.T) {
 func TestFakeCyclesScenes(t *testing.T) {
 	f := &Fake{Instant: true}
 	seen := map[Kind]bool{}
-	for range 4 {
+	for range 5 {
 		for _, ev := range send(t, f, "hello") {
 			seen[ev.Kind] = true
 		}
 	}
 	for _, k := range []Kind{KindDelta, KindStatus, KindToolCall, KindToolOutput,
-		KindToolResult, KindNotice, KindError, KindDone} {
+		KindToolResult, KindAsk, KindNotice, KindError, KindDone} {
 		if !seen[k] {
-			t.Fatalf("four turns never produced a %s", k)
+			t.Fatalf("five turns never produced a %s", k)
 		}
 	}
 }
