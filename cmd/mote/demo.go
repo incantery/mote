@@ -246,7 +246,7 @@ func policyText(p *profile.Profile, from string) string {
 			fmt.Fprintf(&b, "- `%s` — **%s**\n", name, d)
 		}
 	}
-	b.WriteString("\nSay something with **policy** in it to watch it decide eight real calls.\n")
+	b.WriteString("\nSay something with **policy** in it to watch it decide nine real calls.\n")
 	return b.String()
 }
 
@@ -266,11 +266,13 @@ func greeting(sess *session.Session, repo, from, scratch string) string {
 			sess.ID(), n, turns, sess.Path())
 	}
 	return "# mote demo\n\n" + resumed +
-		"Say a line with **policy** in it and the demo runs eight real " +
-		"tool calls — `list`, `read`, `search`, `run`, and four writes — " +
-		"against `" + repo + "`, decided by the supervisor profile in `" +
-		from + "`. One is denied because the checkout is a project root; " +
-		"one stops and **asks**, with `y` / `n` / `a` on the card. This " +
+		"Say a line with **policy** in it and the demo runs nine real " +
+		"tool calls — `list`, `read`, `search`, `run`, four writes and a " +
+		"`delete` — against `" + repo + "`, decided by the supervisor " +
+		"profile in `" + from + "`. One is denied because the checkout is " +
+		"a project root; one stops and **asks**, with `y` / `n` / `a` on " +
+		"the card; the last retracts a fact under her own home, which is " +
+		"removing a file and is not a question. This " +
 		"run's `~` is `" + scratch + "`, so a write the policy allows is " +
 		"real and lands nowhere real; it goes when the demo does. " +
 		"`/policy` prints the rules.\n\n" +

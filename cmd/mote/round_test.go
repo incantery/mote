@@ -85,9 +85,9 @@ func byID(evs []agent.Event, kind agent.Kind, id string) *agent.Event {
 	return nil
 }
 
-// The eight calls, decided by the profile as written: five allowed
-// outright, one denied in the profile's own words, and two that stop
-// and ask.
+// The nine calls, decided by the profile as written: five allowed
+// outright, one denied in the profile's own words, two that stop and
+// ask, and a delete under her own home that does not.
 func TestRoundDecisions(t *testing.T) {
 	r, repo, scratch := newTestRound(t)
 	evs := play(t, r, agent.Yes)
@@ -110,6 +110,11 @@ func TestRoundDecisions(t *testing.T) {
 	deny := byID(evs, agent.KindToolResult, "c6")
 	if deny == nil || !strings.Contains(deny.Result, "start a task for that") {
 		t.Fatalf("c6: %+v", deny)
+	}
+	// And it says, before the reason, that nothing happened — a
+	// refusal a model can read as advice is a refusal that failed.
+	if !strings.HasPrefix(deny.Result, "error: nothing was done: ") {
+		t.Fatalf("c6 does not read as a refusal: %q", deny.Result)
 	}
 	if _, err := os.ReadFile(filepath.Join(repo, "GAPS.md")); err != nil {
 		t.Fatal(err)
@@ -146,6 +151,41 @@ func TestRoundDecisions(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(scratch, "elsewhere", "b.md")); !os.IsNotExist(err) {
 		t.Error("a declined write must not have happened")
 	}
+
+	// The last call is the one this milestone is about: retracting a
+	// fact is removing a file, and under her own home that is
+	// curation rather than a question.
+	if byID(evs, agent.KindAsk, "c9") != nil {
+		t.Error("a delete under ~/vera should not have asked")
+	}
+	del := byID(evs, agent.KindToolResult, "c9")
+	if del == nil || !strings.HasPrefix(del.Result, "removed ") {
+		t.Fatalf("c9: %+v", del)
+	}
+	if _, err := os.Stat(filepath.Join(scratch, "vera", "memory", "stale.md")); !os.IsNotExist(err) {
+		t.Error("the retracted fact is still on disk")
+	}
+}
+
+// A call the person said no to tells the model so, in the same words
+// a denial uses: nothing was done, and here is why.
+func TestRoundSaysNothingWasDoneWhenYouSayNo(t *testing.T) {
+	r, _, _ := newTestRound(t)
+	evs := play(t, r, agent.No)
+	var reply strings.Builder
+	for _, ev := range evs {
+		if ev.Kind == agent.KindDelta {
+			reply.WriteString(ev.Text)
+		}
+	}
+	for _, want := range []string{
+		"error: nothing was done: start a task for that",
+		"error: nothing was done: you were asked, and said no",
+	} {
+		if !strings.Contains(reply.String(), want) {
+			t.Errorf("the reply should carry %q:\n%s", want, reply.String())
+		}
+	}
 }
 
 // Always is a grant with a reach: the second write to the same
@@ -174,7 +214,8 @@ func TestRoundAlwaysStopsAsking(t *testing.T) {
 	if !strings.Contains(reply.String(), "You said **always** to") {
 		t.Fatalf("reply:\n%s", reply.String())
 	}
-	for _, want := range []string{"what the policy decided", "denied", "start a task for that"} {
+	for _, want := range []string{"what the policy decided", "nothing was done",
+		"error: nothing was done: start a task for that"} {
 		if !strings.Contains(reply.String(), want) {
 			t.Errorf("the reply should say %q:\n%s", want, reply.String())
 		}
