@@ -21,7 +21,7 @@ func TestSupervisorDecides(t *testing.T) {
 	if p.Name != "supervisor" {
 		t.Fatalf("name %q", p.Name)
 	}
-	if len(p.Tools) != 6 {
+	if len(p.Tools) != 7 {
 		t.Fatalf("tools %v", p.Tools)
 	}
 	if !strings.Contains(p.Prompt, "start a task for that") {
@@ -47,6 +47,19 @@ func TestSupervisorDecides(t *testing.T) {
 		{"git status", run("git status --short"), tool.Allow},
 		{"git push", run("git push origin main"), tool.Ask},
 		{"a chained command", run("ls; rm -rf /"), tool.Ask},
+
+		// Retracting a fact is deleting a file, and it reaches the
+		// same three places a write does.
+		{"retracting a fact", del("/home/v/vera/memory/mote-is-private.md"), tool.Allow},
+		{"a file in a project", del("/home/v/go/src/github.com/incantery/mote/GAPS.md"), tool.Deny},
+		{"a file in a .git", del("/tmp/p/.git/HEAD"), tool.Deny},
+		{"a scratch file", del("/tmp/scratch/note.md"), tool.Ask},
+		// A delete names more than one path, so the all-or-any rule
+		// is not academic: an allow needs every path inside her home,
+		// and a deny needs only one path in a project.
+		{"a list that leaves her home", del("/home/v/vera/a.md", "/tmp/x.md"), tool.Ask},
+		{"a list that reaches a project", del("/home/v/vera/a.md",
+			"/home/v/go/src/github.com/incantery/rook/x.go"), tool.Deny},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
@@ -97,6 +110,10 @@ func write(path string) tool.Call {
 
 func read(path string) tool.Call {
 	return tool.Call{ID: "c1", Tool: "read", Paths: []string{path}}
+}
+
+func del(paths ...string) tool.Call {
+	return tool.Call{ID: "c1", Tool: "delete", Paths: paths}
 }
 
 func run(cmd string) tool.Call {

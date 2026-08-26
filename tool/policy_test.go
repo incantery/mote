@@ -218,3 +218,41 @@ func TestFirstMatchWins(t *testing.T) {
 		t.Fatalf("%s", got.Decision)
 	}
 }
+
+// What a refused call says back. The sentence has to be unmistakable
+// on its own: a model that is handed "start a task for that" beside
+// no result can read it as a note about a write that went through.
+func TestARefusalSaysNothingWasDone(t *testing.T) {
+	p := &Policy{
+		Default: Ask,
+		Home:    "/home/v",
+		Rules: []Rule{
+			{Tools: []string{"delete"}, Paths: []string{"~/projects/**"},
+				Then: Deny, Reason: "start a task for that"},
+		},
+	}
+	v := p.Decide(Call{ID: "c1", Tool: "delete", Paths: []string{"/home/v/projects/p/x.md"}})
+	if v.Decision != Deny {
+		t.Fatalf("%s", v.Decision)
+	}
+	got := v.Refused()
+	for _, want := range []string{"error:", "nothing was done", "start a task for that"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a refusal should say %q: %q", want, got)
+		}
+	}
+	// The person's own no reads the same way, and names who said it.
+	if got := Declined(); !strings.Contains(got, "nothing was done") ||
+		!strings.Contains(got, "said no") {
+		t.Errorf("%q", got)
+	}
+	// A verdict with no words of its own still says something true
+	// rather than trailing off after the colon.
+	if got := Refused("  "); got != "error: nothing was done: the policy did not allow it" {
+		t.Errorf("%q", got)
+	}
+	// And it is the prefix the terminal already marks a failure by.
+	if !strings.HasPrefix(Refused("x"), "error:") {
+		t.Error("a refusal must look like a failure to a terminal that only knows that prefix")
+	}
+}

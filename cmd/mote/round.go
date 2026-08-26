@@ -87,6 +87,8 @@ func (r *round) script() []call {
 			"neither her home nor a project: **this is the ask**"},
 		{"c8", "write", map[string]any{"path": scratch("elsewhere", "b.md"), "content": "two\n"},
 			"the same directory again — asked again after a *yes*, not after an *always*"},
+		{"c9", "delete", map[string]any{"path": scratch("vera", "memory", "stale.md")},
+			"retracting a fact is removing a file — under `~/vera`, so it is curation and not a question"},
 	}
 }
 
@@ -137,6 +139,10 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 	}()
 
 	var notes []string
+	// What a call that did not run said back. A refused call has no
+	// result, so the sentence it sends instead is the only thing
+	// standing between the model and the belief that it worked.
+	var refused []string
 	for _, c := range r.script() {
 		if ctx.Err() != nil {
 			return
@@ -159,10 +165,15 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 		case tool.Deny:
 			// A denied call still shows: the person sees what was
 			// asked for, and the model is told why in the profile's
-			// own words rather than in a stack trace.
+			// own words rather than in a stack trace. tool.Refused
+			// puts "nothing was done" in front of the reason, so that
+			// "start a task for that" cannot be read as advice beside
+			// a write that went through.
+			told := verdict.Refused()
 			say(agent.Call(id, c.tool, string(args)))
-			say(agent.Result(id, "error: "+verdict.Reason, 0, 0))
-			notes = append(notes, note(c, verdict, "denied"))
+			say(agent.Result(id, told, 0, 0))
+			notes = append(notes, note(c, verdict.Decision, "nothing was done", verdict.Reason))
+			refused = append(refused, "`"+c.tool+"` — "+told)
 			continue
 
 		case tool.Ask:
@@ -173,7 +184,11 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 				return // the exchange ended; the card says so
 			}
 			if !allowed {
-				notes = append(notes, note(c, verdict, "you said no"))
+				// The card already says "you said no"; tool.Declined()
+				// is the same thing said to the model, in the place a
+				// result would have gone.
+				notes = append(notes, note(c, verdict.Decision, "nothing was done", "you said no"))
+				refused = append(refused, "`"+c.tool+"` — "+tool.Declined())
 				continue
 			}
 		}
@@ -187,11 +202,11 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 			text = "error: " + err.Error()
 		}
 		say(agent.Result(id, text, time.Since(started), 0))
-		notes = append(notes, note(c, verdict, "ran"))
+		notes = append(notes, note(c, verdict.Decision, "ran", verdict.Reason))
 		r.pause(ctx, 250*time.Millisecond)
 	}
 
-	for _, chunk := range chunks(r.summary(notes)) {
+	for _, chunk := range chunks(r.summary(notes, refused)) {
 		if !say(agent.Delta(chunk)) {
 			return
 		}
@@ -199,18 +214,25 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 	}
 }
 
-func note(c call, v tool.Verdict, what string) string {
-	return fmt.Sprintf("| `%s` | %s | %s | %s |", c.tool, v.Decision, what, v.Reason)
+func note(c call, d tool.Decision, what, why string) string {
+	return fmt.Sprintf("| `%s` | %s | %s | %s |", c.tool, d, what, why)
 }
 
-func (r *round) summary(notes []string) string {
+func (r *round) summary(notes, refused []string) string {
 	var b strings.Builder
 	b.WriteString("## what the policy decided\n\n")
-	fmt.Fprintf(&b, "Eight calls, through `%s` — the profile in `%s`.\n\n",
+	fmt.Fprintf(&b, "Nine calls, through `%s` — the profile in `%s`.\n\n",
 		r.prof.Name, r.where())
 	b.WriteString("| tool | policy | what happened | why |\n| --- | --- | --- | --- |\n")
 	for _, n := range notes {
 		b.WriteString(n + "\n")
+	}
+	if len(refused) > 0 {
+		b.WriteString("\nA call that did not run has no result, so this is what the " +
+			"model was told in its place — word for word:\n\n")
+		for _, line := range refused {
+			b.WriteString("- " + line + "\n")
+		}
 	}
 	if grants := r.gate.Grants(); len(grants) > 0 {
 		b.WriteString("\nYou said **always** to:\n\n")
@@ -289,7 +311,13 @@ func newRound(fake *agent.Fake, repo, scratch string, all *tool.Registry, prof *
 	prof.Policy.Home = scratch
 	prof.Policy.Dir = repo
 	prof.Policy.Roots = append(prof.Policy.Roots, repo)
-	if err := os.MkdirAll(filepath.Join(scratch, "vera"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(scratch, "vera", "memory"), 0o755); err != nil {
+		return nil, err
+	}
+	// A fact that has stopped being true, for the last call to
+	// retract. It is a file because that is how she keeps them.
+	if err := os.WriteFile(filepath.Join(scratch, "vera", "memory", "stale.md"),
+		[]byte("mote is private\n\nSuperseded: it is going public.\n"), 0o644); err != nil {
 		return nil, err
 	}
 	return &round{

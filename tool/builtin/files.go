@@ -149,7 +149,9 @@ func (w Write) Run(ctx context.Context, args json.RawMessage, out io.Writer) (to
 	if err != nil {
 		return tool.Result{}, err
 	}
-	verb := "wrote"
+	// "replaced" rather than "wrote": a model that reads "wrote" and
+	// meant to append has no way to tell it lost the old contents.
+	verb := "replaced"
 	if _, err := os.Stat(path); err != nil {
 		verb = "created"
 	}

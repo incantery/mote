@@ -20,7 +20,8 @@ is another. A profile is a directory a person can read.
 - `tool` — a registry with policy: each tool declares what it does;
   each profile says allow / ask / deny, by path where a path is
   involved. The boundary is wiring, not manners. `tool/builtin` is
-  the six a coding agent cannot do without.
+  the seven a coding agent cannot do without — read, write, edit,
+  delete, list, search, run.
 - `profile` — a directory a person can read: `profile.md` for the
   prompt, `policy.toml` for the rules. `profiles/supervisor` is the
   worked example.
@@ -115,12 +116,17 @@ go run ./cmd/mote sessions    # the conversations it left behind
 go run ./cmd/mote demo -c <id>  # reopen one
 ```
 
-In the demo, say a line with **policy** in it: eight real tool calls
+In the demo, say a line with **policy** in it: nine real tool calls
 against this checkout, decided by `profiles/supervisor` — five
-allowed, one denied ("start a task for that"), and one that stops and
-asks. `/policy` prints the rules. The demo's `~` is a scratch
-directory it deletes when it quits, so the writes are real and land
-nowhere real.
+allowed, one denied ("start a task for that"), two that stop and ask,
+and a `delete` under her own home that does not. `/policy` prints the
+rules. The demo's `~` is a scratch directory it deletes when it
+quits, so the writes are real and land nowhere real.
+
+A call that does not run — denied, or asked about and refused — comes
+back as `error: nothing was done: <why>` (`tool.Refused`,
+`tool.Declined`), because a reason on its own reads like advice
+beside a write that went through.
 
 Conversations live under `$XDG_STATE_HOME/mote/sessions`, or
 `~/.local/state/mote/sessions`.

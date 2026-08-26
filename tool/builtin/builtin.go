@@ -1,5 +1,5 @@
-// Package builtin is the six tools a coding agent cannot do without:
-// read, write, edit, list, search and run.
+// Package builtin is the seven tools a coding agent cannot do
+// without: read, write, edit, delete, list, search and run.
 //
 // They are small on purpose. Each one does the obvious thing, says
 // what it did in a sentence, and caps what it hands back — a tool
@@ -36,9 +36,13 @@ var (
 	MaxEntries = 500
 	// MaxFile is the largest file read will open at all.
 	MaxFile = 4 << 20
+	// MaxPaths is how many paths delete takes in one call. A
+	// curation retracts a handful of facts; anything longer is a
+	// script, and a script is `run`.
+	MaxPaths = 20
 )
 
-// New is the six, resolving relative paths against dir. An empty dir
+// New is the seven, resolving relative paths against dir. An empty dir
 // means the process's working directory — but a harness should pass
 // one, and pass the same one to Policy.Dir, or a rule and a tool will
 // disagree about what "notes.md" means.
@@ -47,6 +51,7 @@ func New(dir string) []tool.Tool {
 		Read{Dir: dir},
 		Write{Dir: dir},
 		Edit{Dir: dir},
+		Delete{Dir: dir},
 		List{Dir: dir},
 		Search{Dir: dir},
 		Run{Dir: dir},
