@@ -70,3 +70,8 @@ reports, using the chat — and classified as they came up:
 | 2026-08-26 | no per-call harness context (which device asked, "the repo in front of them") | mote tool | later | `Run` takes a harness handle / context values documented |
 | 2026-08-26 | policy rules cannot key on an argument (fleet `action: stop` should ask); "always" scope is the command's first word | mote tool | later | argument selectors in rules; explicit scope from the tool |
 | 2026-08-26 | `Registry.Only` drops harness-owned tools the profile did not name; no Remove/Replace on a registry | mote tool | later | harness-owned tools the profile cannot deselect; in-place edits |
+| 2026-08-26 | verad on mote's provider (24bd8067): stream() gone, usage carries cache tokens, anthropic chosen by key+model, --effort | vera mind | later | delivered; anthropic path untried live (no ANTHROPIC_API_KEY in ~/.config/vera) |
+| 2026-08-26 | the example profile's `model: gpt-5` placeholder, copied into ~/vera, won over the running model — banner said both, replies were 400s | verad | now | fixed by hand in the copy; verad to stamp the running model when it writes the example |
+| 2026-08-26 | provider/openai sends `reasoning_effort: none` when thinking is off; some models reject it | mote provider | now | sent to M8 (9862cc7e): omit unless Effort given |
+| 2026-08-26 | anthropic: thinking blocks are not round-tripped (no opaque field on provider.Message) → 400 on the first multi-round tool exchange on claude-opus-5 | mote provider | now | sent to M8: opaque Raw on Message, ThinkingDisplay |
+| 2026-08-26 | the phone learned the ask (a13d3fa5): ask card, tool rows, tool output; compiled for the simulator, not run on a device | vera ios | later | delivered; verify on a device |
