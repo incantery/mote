@@ -15,8 +15,13 @@ is another. A profile is a directory a person can read.
 
 ## Pieces
 
-- `agent` — the loop: messages, tool rounds, streaming, providers
-  (OpenAI-compatible first; Anthropic-native next).
+- `agent` — the seam a terminal sees: say a thing, get a stream of
+  events back until one of them says done. Nothing in it mentions a
+  provider.
+- `provider` — the wire, behind one interface: `Stream(ctx, Request,
+  func(Event)) (Usage, error)`. OpenAI-compatible chat completions and
+  the Anthropic Messages API, and `New` picks between them from a
+  profile's `model:` line.
 - `tool` — a registry with policy: each tool declares what it does;
   each profile says allow / ask / deny, by path where a path is
   involved. The boundary is wiring, not manners. `tool/builtin` is
@@ -48,6 +53,8 @@ is another. A profile is a directory a person can read.
    terminal that never answers.
 5. Tools with policy, profiles, and the ask: what a harness calls, and
    what it is allowed to call it with.
+7. Providers: one interface over two wires, so the loop stops owning
+   the socket.
 
 ## Tools, policy, the ask
 
@@ -107,6 +114,79 @@ midnight. `profiles.Supervisor()` is the same directory, compiled in.
 
 Read `GAPS.md` for what the loop of building it through Vera turned
 up, and how each gap was classified.
+
+## Providers
+
+The loop wants four things from a model, and they are one method:
+
+```go
+type Provider interface {
+	Stream(ctx context.Context, req Request, fn func(Event)) (Usage, error)
+}
+```
+
+A `Request` is a model, a system prompt, messages, the registry's
+`tool.Definition`s and a token cap — plus three hints only some
+providers honour: `Thinking` (off, or adaptive), `Effort`
+(low…max) and `CacheSystem`. A provider with no opinion about one
+ignores it rather than failing.
+
+What arrives is `Event`s: a text delta, a thinking delta from a
+provider that shows any, a tool call — complete, however many
+fragments the wire cut its arguments into — or an error the model
+made rather than one the socket did. `Usage` is what it cost: `Input`,
+`Output`, `CacheRead`, `CacheWrite`, the model that actually answered
+and why it stopped. The four counts do not overlap whichever wire
+answered, which they do not on the wire: OpenAI's `prompt_tokens`
+includes the cached ones and Anthropic's `input_tokens` does not, and
+each provider corrects its own numbers on the way out.
+
+`fn` is called on `Stream`'s goroutine, in order, and never after it
+returns, so nothing that reads events needs a lock. Cancelling the
+context ends the stream. A model that declined to answer is not an
+error — that is a `KindError` event and a stop reason, because it
+happened and it was paid for.
+
+`provider.New` chooses, and a profile's `model:` line is enough:
+
+```go
+p, err := provider.New(provider.Config{Model: prof.Model})
+```
+
+A name starting with `claude`, and an Anthropic key to call it with,
+gets the Messages API through the official SDK; anything else gets an
+OpenAI-compatible `/chat/completions`. A claude model with no
+Anthropic key is somebody's proxy, and going through it is the right
+answer rather than an error about a key nobody meant to use.
+
+Keys and endpoints come from the `Config`, or — for any field left
+empty — from the environment:
+
+| variable | what it is |
+|---|---|
+| `ANTHROPIC_API_KEY` | the key for the Messages API |
+| `ANTHROPIC_BASE_URL` | somewhere other than the API itself |
+| `OPENAI_API_KEY` | the key for the chat-completions endpoint |
+| `OPENAI_BASE_URL` | that endpoint, if it is not OpenAI's |
+
+An endpoint given without a key sends no `Authorization` header,
+which is what a model running on this machine wants.
+
+The Anthropic side asks for what the Messages API can do and nothing
+it cannot: the system prompt goes as text blocks with an ephemeral
+`cache_control` on the last one and another on the last tool, so the
+stable prefix — tools, then prompt — is written once and read back on
+every turn after; tool results that ran in parallel go back as
+`tool_result` blocks in one user message; thinking is adaptive by
+saying nothing at all, which is what a Claude 4.6 or 5 wants and is
+why no `budget_tokens` is ever sent; `Effort` becomes
+`output_config.effort`. The defaults are `claude-opus-5` and 64000
+tokens, because `max_tokens` is required and streaming is what makes
+a large one safe to ask for.
+
+Both are tested against `httptest` servers speaking their real
+streaming formats, and one conformance test drives the same scripted
+exchange — text, a tool call, a tool result, text — through both.
 
 ## Try it
 
