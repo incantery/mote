@@ -2,32 +2,37 @@ package tui
 
 import (
 	"flag"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
-	"github.com/muesli/termenv"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")
 
-// plain builds a model that paints no colour at all: an Ascii renderer
-// and glamour's ascii style. What is left is the layout, which is what
-// the golden files are for.
+// plain builds a model whose markdown is glamour's ascii style, so
+// that nothing in the transcript is coloured by a style config. The
+// palette still paints — in lipgloss v2 a style always writes its
+// colour and bubbletea downsamples on the way out — so what the golden
+// files hold is the frame with the escapes taken off. What is left is
+// the layout, which is what they are for.
 func plain(t *testing.T, w, h int, opts Options) *Model {
 	t.Helper()
 	pal := DefaultPalette()
 	pal.Markdown = "ascii"
 	opts.Palette = &pal
-	opts.Renderer = lipgloss.NewRenderer(io.Discard, termenv.WithProfile(termenv.Ascii))
 	m := New(&agent.Fake{Instant: true}, opts)
 	step(m, tea.WindowSizeMsg{Width: w, Height: h})
 	return m
 }
+
+// view is the frame's content, which is what a person sees and what
+// the tests measure.
+func view(m *Model) string { return m.View().Content }
 
 // step runs messages through Update, dropping the commands: nothing in
 // these tests needs a running program, only the model's reaction.
@@ -53,47 +58,55 @@ func keys(ss ...string) []tea.Msg {
 	return out
 }
 
-// kmsg turns a name into the KeyMsg bubbletea would deliver.
-func kmsg(s string) tea.KeyMsg {
+// kmsg turns a name into the key press bubbletea would deliver. A key
+// in v2 is a code and a set of modifiers, and its name is what
+// String() makes of them — so the names here are exactly the ones the
+// terminal switches on.
+func kmsg(s string) tea.KeyPressMsg {
 	switch s {
 	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "alt+enter":
-		return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}
+		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 	case "up":
-		return tea.KeyMsg{Type: tea.KeyUp}
+		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
-		return tea.KeyMsg{Type: tea.KeyDown}
+		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "tab":
-		return tea.KeyMsg{Type: tea.KeyTab}
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "shift+tab":
-		return tea.KeyMsg{Type: tea.KeyShiftTab}
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "esc":
-		return tea.KeyMsg{Type: tea.KeyEsc}
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "backspace":
-		return tea.KeyMsg{Type: tea.KeyBackspace}
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "ctrl+o":
-		return tea.KeyMsg{Type: tea.KeyCtrlO}
+		return tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}
 	case "ctrl+t":
-		return tea.KeyMsg{Type: tea.KeyCtrlT}
+		return tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl}
+	case "ctrl+l":
+		return tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl}
 	case "pgdown":
-		return tea.KeyMsg{Type: tea.KeyPgDown}
+		return tea.KeyPressMsg{Code: tea.KeyPgDown}
 	case "pgup":
-		return tea.KeyMsg{Type: tea.KeyPgUp}
+		return tea.KeyPressMsg{Code: tea.KeyPgUp}
 	}
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
 }
 
 // typeIn feeds a string a rune at a time, the way a person does.
 func typeIn(m *Model, s string) {
 	for _, r := range s {
-		step(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		step(m, tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 }
 
-// golden compares against testdata, or rewrites it under -update.
+// golden compares against testdata, or rewrites it under -update. The
+// escapes come off first: the golden files are the layout, and colour
+// is the terminal's business.
 func golden(t *testing.T, name, got string) {
 	t.Helper()
+	got = ansi.Strip(got)
 	path := filepath.Join("testdata", name)
 	if *update {
 		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {

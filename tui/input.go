@@ -4,9 +4,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -40,25 +40,39 @@ func newInput(st styles, placeholder string) *input {
 	ta.Prompt = "› "
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
+	// The box grows with what is in it, up to the cap. Bubbles v2 does
+	// this itself, and counts the lines the way the box draws them —
+	// so a long line that wraps grows the box too, which counting
+	// newlines never did.
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
 	ta.MaxHeight = inputHeight
 	ta.SetHeight(1)
+	// The cursor is the terminal's own — see Model.View. A virtual one
+	// is a styled block in the frame, which is what bubbles draws when
+	// nobody can place a real one; here somebody can.
+	ta.SetVirtualCursor(false)
 	// Every one of the textarea's own styles, because the ones it
-	// ships are lipgloss AdaptiveColor and an AdaptiveColor asks the
-	// terminal what colour it is the first time it is drawn — through
-	// lipgloss's package-level renderer, which is not the one the
-	// Palette was resolved against. The Palette is meant to be the
-	// whole of the terminal's colour; this is the rest of it.
-	for _, sty := range []*textarea.Style{&ta.FocusedStyle, &ta.BlurredStyle} {
-		sty.Base = st.text
-		sty.CursorLine = st.text
-		sty.CursorLineNumber = st.dim
-		sty.EndOfBuffer = st.dim
-		sty.LineNumber = st.dim
-		sty.Placeholder = st.dim
-		sty.Text = st.text
-		sty.Prompt = st.dim
+	// ships are a light set and a dark set and it is the Palette that
+	// is meant to be the whole of the terminal's colour. Set here,
+	// nothing in the box picks a colour of its own.
+	sty := ta.Styles()
+	for _, state := range []*textarea.StyleState{&sty.Focused, &sty.Blurred} {
+		state.Base = st.text
+		state.CursorLine = st.text
+		state.CursorLineNumber = st.dim
+		state.EndOfBuffer = st.dim
+		state.LineNumber = st.dim
+		state.Placeholder = st.dim
+		state.Text = st.text
+		state.Prompt = st.dim
+		state.Selection = st.accent
 	}
-	ta.FocusedStyle.Prompt = st.user
+	sty.Focused.Prompt = st.user
+	// No colour on the cursor: it is a real one now, and the colour it
+	// already has is the one the person chose for their terminal.
+	sty.Cursor.Color = nil
+	ta.SetStyles(sty)
 	// enter sends; a newline is the deliberate one.
 	ta.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("alt+enter", "shift+enter", "ctrl+j"),
@@ -74,7 +88,6 @@ func (in *input) empty() bool   { return strings.TrimSpace(in.ta.Value()) == "" 
 func (in *input) setValue(s string) {
 	in.ta.SetValue(s)
 	in.ta.CursorEnd()
-	in.resize()
 }
 
 func (in *input) reset() {
@@ -82,7 +95,6 @@ func (in *input) reset() {
 	in.at = len(in.history)
 	in.draft = ""
 	in.sugg = nil
-	in.resize()
 }
 
 // load replaces the history with one from somewhere else — a session
@@ -104,13 +116,9 @@ func (in *input) remember(s string) {
 	in.draft = ""
 }
 
-// resize grows the box with the text, up to inputHeight.
-func (in *input) resize() {
-	h := strings.Count(in.ta.Value(), "\n") + 1
-	in.ta.SetHeight(clamp(h, 1, inputHeight))
-}
-
-func (in *input) height() int { return clamp(strings.Count(in.ta.Value(), "\n")+1, 1, inputHeight) }
+// height is how many lines the box is taking, which is what the rest
+// of the screen has to be laid out around.
+func (in *input) height() int { return in.ta.Height() }
 
 // browse walks the history. It is only reachable when the box is
 // empty or already showing a history entry, so it never eats an
@@ -198,7 +206,6 @@ func (in *input) accept() bool {
 func (in *input) update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	in.ta, cmd = in.ta.Update(msg)
-	in.resize()
 	in.suggest()
 	return cmd
 }

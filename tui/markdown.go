@@ -5,69 +5,78 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/glamour"
-	gansi "github.com/charmbracelet/glamour/ansi"
-	gstyles "github.com/charmbracelet/glamour/styles"
-	"github.com/muesli/termenv"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
+	gansi "charm.land/glamour/v2/ansi"
+	gstyles "charm.land/glamour/v2/styles"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
+
+// autoStyle is the name that means "you decide". Glamour v2 dropped
+// its own auto style along with everything that asked the terminal a
+// question; the word is still the one people write in a Palette, so
+// the terminal keeps it and answers it itself.
+const autoStyle = "auto"
 
 // markdown renders assistant text. Building a glamour renderer is the
 // expensive part — it parses a style and builds a syntax highlighter —
 // so there is one per width, kept until the window changes size.
+//
+// Glamour v2 is pure: it always writes full-fidelity colour and never
+// looks at the terminal. What the terminal can take is bubbletea's
+// business, on the way out.
 type markdown struct {
 	style   string
-	profile termenv.Profile
 	byWidth map[int]*glamour.TermRenderer
 }
 
-// newMarkdown takes a style that has already been resolved: nothing
-// below this line is allowed to ask the terminal anything.
-func newMarkdown(style string, profile termenv.Profile) *markdown {
-	return &markdown{style: style, profile: profile, byWidth: map[int]*glamour.TermRenderer{}}
+// newMarkdown takes a style that has already been resolved: "auto"
+// never reaches here.
+func newMarkdown(style string) *markdown {
+	return &markdown{style: style, byWidth: map[int]*glamour.TermRenderer{}}
 }
 
-// resolveStyle turns a glamour style name into one that can be drawn
-// with while the program owns the terminal. "auto" is not one.
+// resolveStyle turns a glamour style name into a concrete one, from
+// what is known about the terminal at the moment it is asked.
 //
-// Deciding "auto" means asking the terminal what colour it is: twelve
-// bytes out — an OSC 11 query and a cursor-position request after it —
-// and the answer arrives on the same device, byte by byte. Glamour
-// asks when it builds a renderer, which is the first time a reply has
-// to be drawn, and by then Bubble Tea is reading stdin. A terminal
-// that answers has its answer typed into the input box; a terminal
-// that does not answer costs five seconds of blank screen, once per
-// width, because that is termenv's timeout.
+// The order is who said it loudest. A name in the Palette is the
+// person's own word — `mote demo -style pink`, or `-light` — and
+// nothing overrides it. GLAMOUR_STYLE is the same word said in the
+// environment. Otherwise the terminal decides: nothing that can carry
+// colour at all gets notty, and the rest turns on the background.
 //
-// So nothing here asks. What is known without asking is enough:
-// GLAMOUR_STYLE if the person set it, notty if nothing is going to a
-// terminal at all, COLORFGBG if the terminal published its own
-// background, and dark otherwise — the rest of the palette is ANSI
-// 1–6 and 8, which reads on either background. Somebody who wants the
-// other one says so outright: Palette.Markdown, or `mote demo -light`.
-func resolveStyle(name string, profile termenv.Profile) string {
-	if name != "" && name != gstyles.AutoStyle {
+// dark is a guess to begin with and an answer later. Nobody blocks on
+// getting it: the first frame is drawn with the safe default and the
+// answer, if the terminal gives one, arrives as a message and the
+// frame is drawn again. See Model.Init.
+func resolveStyle(name string, noColor, dark bool) string {
+	if name != "" && name != autoStyle {
 		return name
 	}
-	if s := os.Getenv("GLAMOUR_STYLE"); s != "" && s != gstyles.AutoStyle {
+	if s := os.Getenv("GLAMOUR_STYLE"); s != "" && s != autoStyle {
 		return s
 	}
-	if profile == termenv.Ascii {
+	if noColor {
 		return gstyles.NoTTYStyle
 	}
-	if lightBackground(os.Getenv("COLORFGBG")) {
+	if !dark {
 		return gstyles.LightStyle
 	}
 	return gstyles.DarkStyle
 }
 
-// darkBackground is the same question one step further on: not which
-// style to render markdown with, but what the terminal is, which is
-// what lipgloss's AdaptiveColor asks the terminal if nobody answers it
-// first — and bubbles' textarea is full of AdaptiveColor. Dark unless
-// something said otherwise, for the same reason as above.
-func darkBackground(style string) bool {
-	return style != gstyles.LightStyle && !lightBackground(os.Getenv("COLORFGBG"))
-}
+// darkDefault is what to assume before the terminal has answered — and
+// forever, on a terminal that never does. COLORFGBG is the one answer
+// that costs nothing: a terminal that publishes its own background has
+// already said so, in the environment, without being asked. Dark
+// otherwise, because the rest of the palette is ANSI 1–6 and 8 and
+// reads on either.
+func darkDefault() bool { return !lightBackground(os.Getenv("COLORFGBG")) }
+
+// noColor says the terminal cannot paint at all — output redirected to
+// a file, or TERM=dumb. It is what glamour's notty style is for.
+func noColor(p colorprofile.Profile) bool { return p == colorprofile.NoTTY }
 
 // lightBackground reads COLORFGBG, which is how a terminal says what
 // colour it is without being asked: "15;0" is a light foreground on a
@@ -82,8 +91,9 @@ func lightBackground(colorFGBG string) bool {
 	if err != nil || n < 0 || n > 15 {
 		return false
 	}
-	_, _, l := termenv.ConvertToRGB(termenv.ANSIColor(n)).Hsl()
-	return l >= 0.5
+	// The same question the terminal's own answer is put to, asked of
+	// the colour it named in the environment instead.
+	return !tea.BackgroundColorMsg{Color: lipgloss.ANSIColor(n)}.IsDark()
 }
 
 // styleConfig is a glamour style with the two things it does to the
@@ -120,7 +130,6 @@ func (md *markdown) renderer(width int) *glamour.TermRenderer {
 	}
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(cfg),
-		glamour.WithColorProfile(md.profile),
 		glamour.WithWordWrap(width),
 		glamour.WithEmoji(),
 	)
