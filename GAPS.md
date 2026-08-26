@@ -77,3 +77,7 @@ reports, using the chat — and classified as they came up:
 | 2026-08-26 | the phone learned the ask (a13d3fa5): ask card, tool rows, tool output; compiled for the simulator, not run on a device | vera ios | later | delivered; verify on a device |
 | 2026-08-26 | milestone 8 landed (9862cc7e): tool Handle/Meta/`when` rules/Own+Replace; mcp package on the official Go SDK v1.6.0 with `mote mcp ls`; provider round-trips thinking (Raw), ThinkingDisplay, reasoning_effort omitted unless asked | mote | later | delivered; verad adoption = cc275c15 |
 | 2026-08-26 | with go.work `use ../mote`, vera main stops building the moment mote main changes an interface — the sibling overrides go.mod until the adoption lands | repos | later | accept (it is the point of the workspace), or pin by dropping `../mote` from go.work between milestones |
+| 2026-08-26 | verad adopted M8 (cc275c15): Handle/Meta/`when` stop rule/Own, mcp.toml + GET /mcp + `vera mcp`, thinking round-trip through History | vera mind | later | delivered |
+| 2026-08-26 | my M8 ask to omit reasoning_effort broke the real endpoint, which needs `none` with function tools — the "gpt-5" 400 was the placeholder, not the model | vera/mote | now | fixed: verad asks for `none` by name; provider passes unknown words through |
+| 2026-08-26 | `Registry.Own` doc says owned tools come first; it appends | mote tool | later | insert in front, or fix the doc |
+| 2026-08-26 | `mcp.Connect` joins failures; a harness cannot say which server failed without parsing | mote mcp | later | per-server errors |
