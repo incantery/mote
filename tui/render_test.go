@@ -266,3 +266,19 @@ func TestSidePane(t *testing.T) {
 		t.Fatalf("the transcript should take the whole width: %d", m.vp.Width())
 	}
 }
+
+// The ask card, open and then answered, at the width most windows
+// are. It is the one card a person has to act on, so what it looks
+// like is worth pinning.
+func TestAskCardGolden(t *testing.T) {
+	a := &answers{}
+	m := plain(t, 80, 30, Options{Name: "mote"})
+	m.agent = a
+	step(m, events(agent.Asking("call_7", "write",
+		`{"path":"/tmp/scratch/notes.md","content":"# what the policy decided\n"}`,
+		"outside ~/vera and not a project — the profile says ask"))...)
+	open := ansi.Strip(m.renderAsk(m.entries[0], 80))
+	press(m, "a")
+	answered := ansi.Strip(m.renderAsk(m.entries[0], 80))
+	golden(t, "ask-card.txt", open+"\n\n"+answered+"\n")
+}

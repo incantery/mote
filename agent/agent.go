@@ -79,6 +79,10 @@ type Event struct {
 	// string, not a map: the terminal shows it, it does not read it.
 	Args string `json:"args,omitempty"`
 	// Result is what the tool returned (KindToolResult). Often long.
+	// On a KindAsk it is the answer — "yes", "no" or "always" — which
+	// is only ever set on an ask that has already been answered: a
+	// recorded exchange, replayed, comes back with the answer in it
+	// rather than as a question nobody can answer any more.
 	Result string `json:"result,omitempty"`
 	// Duration is how long the tool took (KindToolResult).
 	Duration time.Duration `json:"duration,omitempty"`
@@ -193,6 +197,14 @@ func Result(id, result string, d time.Duration, cost float64) Event {
 // in the profile's own words when it had any.
 func Asking(id, name, args, why string) Event {
 	return Event{Kind: KindAsk, ID: id, Name: name, Args: args, Text: why}
+}
+
+// Answered is an ask that has already been answered. It is what a
+// recorded exchange holds: the question, and what the person said.
+func Answered(id, name, args, why, choice string) Event {
+	ev := Asking(id, name, args, why)
+	ev.Result = choice
+	return ev
 }
 
 // Done ends an exchange.

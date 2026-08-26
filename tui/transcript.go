@@ -19,6 +19,7 @@ const (
 	entryNotice
 	entryError
 	entryTool
+	entryAsk   // a question the agent stopped to ask
 	entryBlock // markdown the application put there, not the agent
 )
 
@@ -39,6 +40,11 @@ type entry struct {
 	running  bool
 	expanded bool
 	offset   int // first body line shown, when expanded
+
+	// An ask's: what the person said, and whether the turn ended
+	// before they could say it.
+	answer    string
+	cancelled bool
 
 	cache  string
 	cacheW int
@@ -76,6 +82,18 @@ func (e *entry) invalidate() { e.cacheW = 0; e.cacheK = "" }
 
 // renderEntry draws one entry at width w, from cache when it can.
 func (m *Model) renderEntry(e *entry, w int, focused bool) string {
+	if e.kind == entryAsk {
+		key := "ask|" + e.answer
+		if e.cancelled {
+			key += "|cancelled"
+		}
+		if e.cacheW == w && e.cacheK == key {
+			return e.cache
+		}
+		out := m.renderAsk(e, w)
+		e.cache, e.cacheW, e.cacheK = out, w, key
+		return out
+	}
 	if e.kind == entryTool {
 		key := fmt.Sprintf("%v|%v|%d|%d", e.expanded, focused, e.offset, m.frame)
 		if !e.volatile() {

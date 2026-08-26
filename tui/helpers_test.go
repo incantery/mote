@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -124,3 +125,16 @@ func golden(t *testing.T, name, got string) {
 }
 
 func lipglossWidth(s string) int { return lipgloss.Width(s) }
+
+// waitFor spins until cond holds, for the few things a terminal does
+// off its own goroutine.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	for range 200 {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("timed out")
+}
