@@ -20,12 +20,21 @@ import (
 // the stream simply ends and the token counts — which is to say the
 // cost — are never reported at all.
 //
-// Of the three hints on a Request it honours two, and only where the
-// endpoint has somewhere to put them: Effort becomes reasoning_effort,
-// Thinking off becomes reasoning_effort "none" (some endpoints refuse
-// function tools with reasoning on, and this is how you tell them),
-// and CacheSystem is ignored — OpenAI caches long prompts by itself
-// and has no way to be asked.
+// Of a Request's hints it honours one, and only where the endpoint
+// has somewhere to put it: Effort becomes reasoning_effort. Thinking,
+// ThinkingDisplay, Message.Raw and CacheSystem are ignored — OpenAI
+// caches long prompts by itself and has no way to be asked, and the
+// rest is the Messages API's vocabulary, not this one's.
+//
+// reasoning_effort is sent only when Effort was set, because the
+// value that would otherwise go in it is the problem: verad sent
+// "none" for Thinking off, and an OpenAI-compatible endpoint answers
+// that with `400: Unsupported value: 'reasoning_effort' does not
+// support 'none'` for models that have no way to turn reasoning off.
+// A hint that 400s is worse than a hint that was not taken. An
+// endpoint that does want a particular word — "none" included — is
+// asked for it by name: an Effort this package does not recognise is
+// passed through as the caller wrote it.
 type OpenAI struct {
 	// Model is used when a Request does not name one.
 	Model string
@@ -84,6 +93,22 @@ type chatFunction struct {
 	Arguments string `json:"arguments"`
 }
 
+// effort is a Request's dial in the words this endpoint has:
+// minimal, low, medium, high. The two above high are high — the
+// endpoint has no word for them and refusing the request over it
+// would be worse than working slightly less hard. An empty Effort
+// sends no field at all, and anything else is the caller's own word
+// for their own endpoint, passed through.
+func effort(e Effort) string {
+	switch e {
+	case "":
+		return ""
+	case EffortXHigh, EffortMax:
+		return string(EffortHigh)
+	}
+	return string(e)
+}
+
 // Stream is one chat-completions call.
 func (o *OpenAI) Stream(ctx context.Context, req Request, fn func(Event)) (Usage, error) {
 	var used Usage
@@ -96,12 +121,7 @@ func (o *OpenAI) Stream(ctx context.Context, req Request, fn func(Event)) (Usage
 		Tools:         req.Tools,
 		MaxTokens:     req.MaxTokens,
 	}
-	switch {
-	case req.Effort != "":
-		body.ReasoningEffort = string(req.Effort)
-	case req.Thinking == ThinkingOff:
-		body.ReasoningEffort = "none"
-	}
+	body.ReasoningEffort = effort(req.Effort)
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return used, err

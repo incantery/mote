@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -146,8 +145,11 @@ func TestOpenAISendsTheConversation(t *testing.T) {
 	}
 }
 
-// Effort is the dial; thinking off is how you tell an endpoint that
-// refuses function tools with reasoning on to turn it off.
+// Effort is the dial, and the only hint this endpoint has a place
+// for. The field is sent when it was set and not otherwise: a
+// reasoning_effort of "none" is a 400 on an endpoint whose model
+// cannot turn reasoning off, and a hint that fails the whole request
+// is worse than a hint that was not taken.
 func TestOpenAIEffortAndThinking(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -156,8 +158,18 @@ func TestOpenAIEffortAndThinking(t *testing.T) {
 	}{
 		{"nothing said", Request{}, nil},
 		{"effort", Request{Effort: EffortHigh}, "high"},
-		{"thinking off", Request{Thinking: ThinkingOff}, "none"},
-		{"effort wins", Request{Effort: EffortLow, Thinking: ThinkingOff}, "low"},
+		{"minimal", Request{Effort: Effort("minimal")}, "minimal"},
+		// Two words this endpoint does not have. High is what it has.
+		{"xhigh", Request{Effort: EffortXHigh}, "high"},
+		{"max", Request{Effort: EffortMax}, "high"},
+		// Thinking off used to send "none", and that is the 400.
+		{"thinking off", Request{Thinking: ThinkingOff}, nil},
+		{"effort with thinking off", Request{Effort: EffortLow, Thinking: ThinkingOff}, "low"},
+		// The endpoint that really does want "none" asks for it by
+		// name, and an unrecognised word goes through as written.
+		{"a word of its own", Request{Effort: Effort("none")}, "none"},
+		// The other Messages API vocabulary has nowhere to go here.
+		{"display", Request{ThinkingDisplay: DisplayOmitted}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p, w := openAIScene(t)
@@ -233,6 +245,6 @@ func (s stub) Description() string { return s.name + " reads a file" }
 func (s stub) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)
 }
-func (s stub) Run(context.Context, json.RawMessage, io.Writer) (tool.Result, error) {
+func (s stub) Run(context.Context, json.RawMessage, tool.Handle) (tool.Result, error) {
 	return tool.Result{Text: "ran"}, nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -89,6 +90,10 @@ func (r *round) script() []call {
 			"the same directory again — asked again after a *yes*, not after an *always*"},
 		{"c9", "delete", map[string]any{"path": scratch("vera", "memory", "stale.md")},
 			"retracting a fact is removing a file — under `~/vera`, so it is curation and not a question"},
+		{"c10", "room", map[string]any{"action": "open", "what": "the mcp milestone"},
+			"the harness's own tool — the profile's `tools:` line never named it and cannot take it away"},
+		{"c11", "room", map[string]any{"action": "stop", "what": "the mcp milestone"},
+			"the same tool, the other verb: **this ask is a rule about an argument**"},
 	}
 }
 
@@ -143,6 +148,9 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 	// result, so the sentence it sends instead is the only thing
 	// standing between the model and the belief that it worked.
 	var refused []string
+	// What the calls handed back for the harness to write down, which
+	// the model is never told. A journal keeps these beside the round.
+	var recorded []string
 	for _, c := range r.script() {
 		if ctx.Err() != nil {
 			return
@@ -196,17 +204,29 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 		// 2. Run it, streaming whatever it prints into the card.
 		say(agent.Call(id, c.tool, string(args)))
 		started := time.Now()
-		res, err := t.Run(ctx, args, writerTo(id, out, ctx))
+		res, err := t.Run(ctx, args, tool.Handle{
+			// What the tool prints, as it prints it.
+			Output: writerTo(id, out, ctx),
+			// The harness's own voice, for a tool with something to
+			// say before it has a result.
+			Status: func(text string) { say(agent.Status(text)) },
+			// What this harness knows about the call that the model's
+			// arguments do not say.
+			Values: map[string]any{tool.Device: "the demo", tool.Cwd: r.repo},
+		})
 		text := res.Text
 		if err != nil {
 			text = "error: " + err.Error()
 		}
-		say(agent.Result(id, text, time.Since(started), 0))
+		say(agent.Result(id, text, time.Since(started), meta(res, tool.MetaCost)))
 		notes = append(notes, note(c, verdict.Decision, "ran", verdict.Reason))
+		if line := recordOf(c.tool, res); line != "" {
+			recorded = append(recorded, line)
+		}
 		r.pause(ctx, 250*time.Millisecond)
 	}
 
-	for _, chunk := range chunks(r.summary(notes, refused)) {
+	for _, chunk := range chunks(r.summary(notes, refused, recorded)) {
 		if !say(agent.Delta(chunk)) {
 			return
 		}
@@ -218,10 +238,36 @@ func note(c call, d tool.Decision, what, why string) string {
 	return fmt.Sprintf("| `%s` | %s | %s | %s |", c.tool, d, what, why)
 }
 
-func (r *round) summary(notes, refused []string) string {
+// meta is one number out of a Result's Meta, or zero. The cost of a
+// call is the harness's to record and the terminal's to show; the
+// model is told the Text and nothing else.
+func meta(res tool.Result, key string) float64 {
+	v, _ := res.Meta[key].(float64)
+	return v
+}
+
+// recordOf is a call's Meta as the journal would keep it: sorted, so
+// two runs say it the same way.
+func recordOf(name string, res tool.Result) string {
+	if len(res.Meta) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(res.Meta))
+	for k := range res.Meta {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, fmt.Sprintf("%s=%v", k, res.Meta[k]))
+	}
+	return "`" + name + "` — " + strings.Join(pairs, ", ")
+}
+
+func (r *round) summary(notes, refused, recorded []string) string {
 	var b strings.Builder
 	b.WriteString("## what the policy decided\n\n")
-	fmt.Fprintf(&b, "Nine calls, through `%s` — the profile in `%s`.\n\n",
+	fmt.Fprintf(&b, "Eleven calls, through `%s` — the profile in `%s`.\n\n",
 		r.prof.Name, r.where())
 	b.WriteString("| tool | policy | what happened | why |\n| --- | --- | --- | --- |\n")
 	for _, n := range notes {
@@ -231,6 +277,13 @@ func (r *round) summary(notes, refused []string) string {
 		b.WriteString("\nA call that did not run has no result, so this is what the " +
 			"model was told in its place — word for word:\n\n")
 		for _, line := range refused {
+			b.WriteString("- " + line + "\n")
+		}
+	}
+	if len(recorded) > 0 {
+		b.WriteString("\nAnd this is what the calls handed back for the harness to " +
+			"write down — `Result.Meta`, which the model is never told:\n\n")
+		for _, line := range recorded {
 			b.WriteString("- " + line + "\n")
 		}
 	}
@@ -297,6 +350,13 @@ func chunks(s string) []string {
 // profile, the built-in tools it lists, and a scratch directory
 // standing in for a home so that a demo cannot write to a real one.
 func newRound(fake *agent.Fake, repo, scratch string, all *tool.Registry, prof *profile.Profile) (*round, error) {
+	// The harness's own tool, owned before the profile narrows the
+	// set: a profile chooses among the built-ins, and `room` is not on
+	// that menu — it is what this harness *is*. The supervisor's
+	// `tools:` line has never heard of it, and Only keeps it anyway.
+	if err := all.Own(room{}); err != nil {
+		return nil, err
+	}
 	reg, err := prof.Registry(all)
 	if err != nil {
 		return nil, err
@@ -311,6 +371,23 @@ func newRound(fake *agent.Fake, repo, scratch string, all *tool.Registry, prof *
 	prof.Policy.Home = scratch
 	prof.Policy.Dir = repo
 	prof.Policy.Roots = append(prof.Policy.Roots, repo)
+	// Handing work away is what a supervisor is for, so opening a room
+	// is no more of an event than reading is. This is the gap a
+	// profile that never heard of the tool leaves, filled the way
+	// verad fills it for `fleet` and `delegate`.
+	if prof.Policy.Tools == nil {
+		prof.Policy.Tools = map[string]tool.Decision{}
+	}
+	prof.Policy.Tools["room"] = tool.Allow
+	// Stopping one is the verb that subtracts, and it is the only one
+	// worth a question. It goes last, so a rule a person writes in
+	// policy.toml about `room` wins.
+	prof.Policy.Rules = append(prof.Policy.Rules, tool.Rule{
+		Tools:  []string{"room"},
+		When:   map[string]string{"action": "stop"},
+		Then:   tool.Ask,
+		Reason: "stopping a room abandons the work in it — check they meant to",
+	})
 	if err := os.MkdirAll(filepath.Join(scratch, "vera", "memory"), 0o755); err != nil {
 		return nil, err
 	}

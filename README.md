@@ -23,10 +23,13 @@ is another. A profile is a directory a person can read.
   the Anthropic Messages API, and `New` picks between them from a
   profile's `model:` line.
 - `tool` — a registry with policy: each tool declares what it does;
-  each profile says allow / ask / deny, by path where a path is
-  involved. The boundary is wiring, not manners. `tool/builtin` is
-  the seven a coding agent cannot do without — read, write, edit,
-  delete, list, search, run.
+  each profile says allow / ask / deny, by path, by command, or by an
+  argument where the argument is the question. The boundary is wiring,
+  not manners. `tool/builtin` is the seven a coding agent cannot do
+  without — read, write, edit, delete, list, search, run.
+- `mcp` — other people's tools: the servers a profile declares in
+  `mcp.toml`, connected, with everything they offer in the same
+  registry under the same policy.
 - `profile` — a directory a person can read: `profile.md` for the
   prompt, `policy.toml` for the rules. `profiles/supervisor` is the
   worked example.
@@ -55,6 +58,9 @@ is another. A profile is a directory a person can read.
    what it is allowed to call it with.
 7. Providers: one interface over two wires, so the loop stops owning
    the socket.
+8. MCP, and what the first harness asked of the tool package: a run
+   handle, `Result.Meta`, rules that key on an argument, tools the
+   harness owns.
 
 ## Tools, policy, the ask
 
@@ -65,14 +71,28 @@ type Tool interface {
 	Name() string
 	Description() string
 	Schema() json.RawMessage
-	Run(ctx context.Context, args json.RawMessage, out io.Writer) (Result, error)
+	Run(ctx context.Context, args json.RawMessage, h Handle) (Result, error)
 }
 ```
 
 A tool that takes paths says which arguments are paths (`Paths`); one
-that runs a command says what the command line is (`Command`). That is
-all a policy needs, and it is why a profile can write rules about
-tools it has never heard of.
+that runs a command says what the command line is (`Command`); one
+whose verb is the question says what an "always" about it covers
+(`Scope`). That is all a policy needs, and it is why a profile can
+write rules about tools it has never heard of.
+
+A `Handle` is what the harness lends a tool for one call: `Output` to
+write what the person watches, `Say` for a line in the harness's own
+voice before there is any result ("Opening a room…"), and `Values` for
+what the harness knows that the arguments do not say — `tool.Device`
+and `tool.Cwd` are the documented keys. The zero Handle works, so a
+tool never checks: writing goes nowhere, saying says nothing, every
+value is missing.
+
+A `Result` is `Text` — what the model is told — and `Meta`, a small
+JSON-shaped map the harness records and the model never sees: the task
+a call started, the session it opened, what it cost (`tool.MetaTask`,
+`MetaSession`, `MetaCost`).
 
 `Registry.Definitions()` is the set in the OpenAI function-tool shape,
 which is what goes into the request body. What comes back is a tool
@@ -87,7 +107,7 @@ case tool.Ask:
 	reply(agent.Asking(id, t.Name(), string(args), v.Reason))
 	ok, err := gate.Wait(ctx, call)   // parks until the person answers
 }
-res, err := t.Run(ctx, args, out)     // out becomes tool_output events
+res, err := t.Run(ctx, args, h)       // h.Output becomes tool_output events
 ```
 
 Deciding touches no files. Every path is made absolute and cleaned
@@ -95,10 +115,33 @@ first, so a `../` cannot walk around a rule; an allow needs *every*
 path of a call, a deny or an ask needs *one*; a command prefix matches
 on a word boundary and never through a shell operator.
 
+A rule can also key on an argument, which is how one tool with several
+verbs gets several answers:
+
+```toml
+[[rules]]
+tools = ["fleet"]
+when  = { action = "stop" }
+then  = "ask"
+reason = "stopping a task abandons the work in it — check they meant to"
+```
+
+It is equality on top-level string arguments, every pair having to
+match, and nothing cleverer: an argument that is a number, an object
+or absent does not match, so a rule that cannot see what it asks about
+does not fire.
+
+Some tools are the harness's rather than the profile's — a supervisor
+who cannot hand work away is not a supervisor, whatever her `tools:`
+line forgot to say. `Registry.Own(tools...)` marks those, and `Only`
+keeps them, first. `Replace` and `Remove` let a registry change while
+it is being served from, which is what an MCP server saying its tool
+list changed does.
+
 The ask reaches the terminal as `agent.KindAsk` and comes back through
 `agent.Answerer` — `yes`, `no`, or `always`. An `always` is remembered
-by `tool.Gate` as a grant with a reach: the directory for a file, the
-program for a command.
+by `tool.Gate` as a grant with a reach: what the tool said its `Scope`
+was, or else the directory for a file and the program for a command.
 
 ## A profile
 
@@ -106,6 +149,7 @@ program for a command.
 profiles/supervisor/
   profile.md     the system prompt, with name / model / tools on top
   policy.toml    the rules, in the order they are tried
+  mcp.toml       MCP servers, if it has any
 ```
 
 `profile.Load(dir)` returns the prompt, the tool names and the policy;
@@ -114,6 +158,66 @@ midnight. `profiles.Supervisor()` is the same directory, compiled in.
 
 Read `GAPS.md` for what the loop of building it through Vera turned
 up, and how each gap was classified.
+
+## MCP
+
+The third file in a profile is other people's tools:
+
+```toml
+[[servers]]
+name    = "files"
+command = "mcp-server-filesystem"
+args    = ["~/notes"]
+env     = { READ_ONLY = "1" }
+
+[[servers]]
+name    = "docs"
+url     = "https://mcp.example.com/mcp"
+headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
+```
+
+A command is the stdio transport — a subprocess, talked to over its
+stdin and stdout in newline-delimited JSON-RPC. A url is streamable
+HTTP, POSTing and reading SSE back. `${VAR}` anywhere in a url, a
+command, its args, an env value or a header comes from the
+environment, so a token lives where a secret belongs and the file says
+which one.
+
+Two calls, and a harness has them:
+
+```go
+servers, err := mcp.Load(prof.Dir)             // nil if there is no mcp.toml
+set, err := mcp.Connect(ctx, servers, reg)     // err names the ones that did not answer
+defer set.Close()
+```
+
+Every tool every server offers is now in `reg` as `<server>.<tool>`,
+with the server's own JSON Schema, as the registry's `Own` — a
+`tools:` line written before the server existed does not drop them.
+After that nothing about them is special: they are in
+`Definitions()`, the policy decides them by name (a profile whose
+default is ask asks the first time), and a `tools/call` happens in
+`Run`. A `notifications/tools/list_changed` re-lists and makes the
+registry agree while it is being served from.
+
+Text comes back as text; an image, a sound or a resource becomes one
+line saying what it was and how big, because the alternative is a
+megabyte of base64 in a context window or a model told nothing
+happened. A tool that says it failed is a `Result` saying so — the
+model can work with "the disk is full" — and the protocol's `_meta`
+becomes `Result.Meta`.
+
+`mote mcp ls <profile>` connects and prints what came back, under the
+names the model will see and a policy rule has to be written against.
+
+The protocol is the official Go SDK,
+`github.com/modelcontextprotocol/go-sdk`, which is at v1 and has both
+transports; what is in `mcp` is what it has no opinion about. One
+thing to know before a real model: a function name in an OpenAI
+request body, and a tool name in an Anthropic one, must match
+`[a-zA-Z0-9_-]{1,64}`, and a dot is not in it. `mcp.Separator` is what
+goes between the server and the tool, and a harness that has met a
+model sets it to `__` once, at startup, before `Connect`.
 
 ## Providers
 
@@ -177,16 +281,33 @@ it cannot: the system prompt goes as text blocks with an ephemeral
 `cache_control` on the last one and another on the last tool, so the
 stable prefix — tools, then prompt — is written once and read back on
 every turn after; tool results that ran in parallel go back as
-`tool_result` blocks in one user message; thinking is adaptive by
-saying nothing at all, which is what a Claude 4.6 or 5 wants and is
-why no `budget_tokens` is ever sent; `Effort` becomes
+`tool_result` blocks in one user message; an assistant turn's kept
+thinking blocks go back in front of its text and its tool calls, and
+stay behind when the request turns thinking off; thinking is adaptive
+by saying nothing at all, which is what a Claude 4.6 or 5 wants and is
+why no `budget_tokens` is ever sent, and `ThinkingDisplay` becomes
+`thinking.display`, which the API has a place for only on the adaptive
+config — so asking for one asks for the other; `Effort` becomes
 `output_config.effort`. The defaults are `claude-opus-5` and 64000
 tokens, because `max_tokens` is required and streaming is what makes
 a large one safe to ask for.
 
+The OpenAI side has a place for one hint, `Effort`, and sends
+`reasoning_effort` only when it was set. It used to send `"none"` for
+`Thinking: off` — verad's way of telling an endpoint that refuses
+function tools with reasoning on — and an OpenAI-compatible endpoint
+answers that with `400: Unsupported value: 'reasoning_effort' does not
+support 'none'` for a model that has no way to turn reasoning off. A
+hint that fails the request is worse than a hint that was not taken.
+`xhigh` and `max` become `high`, which is the strongest word that end
+has; an `Effort` this package does not recognise is passed through as
+the caller wrote it, so the endpoint that really does want `"none"`
+asks for it by name.
+
 Both are tested against `httptest` servers speaking their real
 streaming formats, and one conformance test drives the same scripted
-exchange — text, a tool call, a tool result, text — through both.
+exchange — text, a tool call, a tool result, text — through both,
+carrying each provider's own `Raw` back without reading it.
 
 ## Try it
 
@@ -194,13 +315,17 @@ exchange — text, a tool call, a tool result, text — through both.
 go run ./cmd/mote demo        # the terminal, over a scripted agent
 go run ./cmd/mote sessions    # the conversations it left behind
 go run ./cmd/mote demo -c <id>  # reopen one
+go run ./cmd/mote mcp ls <profile>  # its MCP servers, and their tools
 ```
 
-In the demo, say a line with **policy** in it: nine real tool calls
+In the demo, say a line with **policy** in it: eleven real tool calls
 against this checkout, decided by `profiles/supervisor` — five
 allowed, one denied ("start a task for that"), two that stop and ask,
-and a `delete` under her own home that does not. `/policy` prints the
-rules. The demo's `~` is a scratch directory it deletes when it
+a `delete` under her own home that does not, and two calls to `room`,
+a tool the *harness* owns: one that the profile's `tools:` line never
+named and cannot drop, that speaks in the harness's voice, hands back
+a task id in `Result.Meta`, and is asked about only for the verb a
+rule names. `/policy` prints the rules. The demo's `~` is a scratch directory it deletes when it
 quits, so the writes are real and land nowhere real.
 
 A call that does not run — denied, or asked about and refused — comes

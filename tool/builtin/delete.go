@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,7 +117,7 @@ func (d doomed) what() string {
 	return fmt.Sprintf("%s — %s", d.path, size(int(d.bytes)))
 }
 
-func (d Delete) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool.Result, error) {
+func (d Delete) Run(ctx context.Context, args json.RawMessage, h tool.Handle) (tool.Result, error) {
 	var v deleteArgs
 	if err := decode(d.Name(), args, &v); err != nil {
 		return tool.Result{}, err

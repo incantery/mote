@@ -86,7 +86,27 @@ type Request struct {
 	// little on the turn that writes the cache and saves most of the
 	// prompt on every turn after it.
 	CacheSystem bool
+	// ThinkingDisplay is whether the reasoning comes back to be read
+	// or only to be kept. It is a separate dial from Thinking because
+	// turning thinking off and asking not to be shown it are
+	// different things: a model that thinks and does not show its
+	// work still signs it, and the signature is what the next turn
+	// needs. Empty means the provider's default.
+	ThinkingDisplay Display
 }
+
+// Display is whether a model's reasoning is shown.
+type Display string
+
+const (
+	// DisplaySummarized returns the thinking to be read, which is
+	// what happens when nobody says.
+	DisplaySummarized Display = "summarized"
+	// DisplayOmitted redacts the thinking and returns only its
+	// signature — enough to hand back on the next turn, and nothing
+	// to put in front of a person.
+	DisplayOmitted Display = "omitted"
+)
 
 // Thinking is whether the model reasons before it answers.
 type Thinking string
@@ -140,6 +160,25 @@ type Message struct {
 	// Error says a tool message is a failure rather than a result.
 	// Some APIs mark it; the ones that do not are told in the text.
 	Error bool
+	// Raw is the provider's own record of an assistant turn, to be
+	// handed back on the next one unchanged.
+	//
+	// It is opaque: a harness keeps it beside the message, writes it
+	// to a session file if it keeps one, and gives it back. Nothing
+	// outside the provider that made it should read it, and no
+	// provider should need anybody else's.
+	//
+	// It exists because of extended thinking. The Messages API is
+	// strict about an assistant turn that both thought and called a
+	// tool: the thinking blocks — with the signatures it put on them
+	// — have to come back on the next request, in front of the tool
+	// call they led to, or it refuses the whole conversation. Text
+	// and Calls cannot carry a signature, and a harness has no
+	// business learning what one is. So the provider hands one out
+	// (KindRaw, once, at the end of a turn that produced any) and
+	// reads it back when it builds the next request. A provider with
+	// nothing to keep never sends one, and ignores one it is given.
+	Raw json.RawMessage
 }
 
 // Call is a tool the model asked for.
@@ -192,6 +231,12 @@ const (
 	// end the exchange — a refusal, most of the time. Text says what.
 	// An exchange that ended is Stream's error instead.
 	KindError Kind = "error"
+	// KindRaw is the provider's own record of this turn, for the
+	// harness to put on the assistant Message it builds and hand back
+	// on the next one. Raw holds it, and it is opaque — see
+	// Message.Raw. At most one arrives, last, and only from a
+	// provider that has something to keep.
+	KindRaw Kind = "raw"
 )
 
 // Event is one thing that arrived.
@@ -201,6 +246,8 @@ type Event struct {
 	Text string
 	// Call is the tool call, on KindToolCall.
 	Call Call
+	// Raw is the provider's record of the turn, on KindRaw.
+	Raw json.RawMessage
 }
 
 // Delta is a piece of the reply.
@@ -213,6 +260,10 @@ func Thought(text string) Event { return Event{Kind: KindThinking, Text: text} }
 func Calling(id, name, args string) Event {
 	return Event{Kind: KindToolCall, Call: Call{ID: id, Name: name, Arguments: args}}
 }
+
+// Keeping is the provider's record of this turn, for the harness to
+// hand back on the next one.
+func Keeping(raw json.RawMessage) Event { return Event{Kind: KindRaw, Raw: raw} }
 
 // Fail is something that went wrong without ending the exchange.
 func Fail(text string) Event { return Event{Kind: KindError, Text: text} }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -52,7 +51,7 @@ func (r Read) Paths(args json.RawMessage) []string {
 	})
 }
 
-func (r Read) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool.Result, error) {
+func (r Read) Run(ctx context.Context, args json.RawMessage, h tool.Handle) (tool.Result, error) {
 	var v readArgs
 	if err := decode(r.Name(), args, &v); err != nil {
 		return tool.Result{}, err
@@ -140,7 +139,7 @@ func (w Write) Paths(args json.RawMessage) []string {
 	})
 }
 
-func (w Write) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool.Result, error) {
+func (w Write) Run(ctx context.Context, args json.RawMessage, h tool.Handle) (tool.Result, error) {
 	var v writeArgs
 	if err := decode(w.Name(), args, &v); err != nil {
 		return tool.Result{}, err
@@ -205,7 +204,7 @@ func (e Edit) Paths(args json.RawMessage) []string {
 	})
 }
 
-func (e Edit) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool.Result, error) {
+func (e Edit) Run(ctx context.Context, args json.RawMessage, h tool.Handle) (tool.Result, error) {
 	var v editArgs
 	if err := decode(e.Name(), args, &v); err != nil {
 		return tool.Result{}, err
@@ -282,7 +281,7 @@ func (l List) Paths(args json.RawMessage) []string {
 // tenths .git objects is a listing of nothing.
 var skipped = map[string]bool{".git": true, "node_modules": true}
 
-func (l List) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool.Result, error) {
+func (l List) Run(ctx context.Context, args json.RawMessage, h tool.Handle) (tool.Result, error) {
 	var v listArgs
 	if err := decode(l.Name(), args, &v); err != nil {
 		return tool.Result{}, err

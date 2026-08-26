@@ -142,7 +142,9 @@ type collect struct {
 	think strings.Builder
 	calls []Call
 	fails []string
-	each  func(Event)
+	// raw is what the provider asked to be handed back next turn.
+	raw  json.RawMessage
+	each func(Event)
 }
 
 func (c *collect) on(ev Event) {
@@ -155,6 +157,8 @@ func (c *collect) on(ev Event) {
 		c.calls = append(c.calls, ev.Call)
 	case KindError:
 		c.fails = append(c.fails, ev.Text)
+	case KindRaw:
+		c.raw = ev.Raw
 	default:
 		panic("provider: event with no kind")
 	}
