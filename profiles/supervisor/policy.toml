@@ -1,0 +1,51 @@
+# What this agent's tools may touch.
+#
+# For each call: the rules are tried in order and the first match
+# wins; then the tool's own default; then this file's `default`.
+# Every path is made absolute and cleaned before it is matched, so a
+# rule cannot be walked around with `../`.
+
+# When nothing below has anything to say, ask the person.
+default = "ask"
+
+# The repositories work belongs in. `${root}` in a rule's path stands
+# for each of them in turn. Add a line here when a repository joins.
+roots = [
+  "~/go/src/github.com/incantery/vera",
+  "~/go/src/github.com/incantery/mote",
+  "~/go/src/github.com/incantery/rook",
+]
+
+# Looking costs nothing and changes nothing.
+[tools]
+read = "allow"
+list = "allow"
+search = "allow"
+write = "ask"
+edit = "ask"
+run = "ask"
+
+# A project is a task's, not hers — and .git is nobody's to edit by
+# hand. This is first so that neither of the rules below can reach
+# into one.
+[[rules]]
+tools = ["write", "edit"]
+paths = ["${root}/**", "**/.git/**"]
+then = "deny"
+reason = "start a task for that"
+
+# Her own home. Notes, drafts, whatever she keeps.
+[[rules]]
+tools = ["write", "edit"]
+paths = ["~/vera/**"]
+then = "allow"
+reason = "her own home"
+
+# Commands that only read. The match is on a word boundary, so
+# `git status --short` is covered and `git statusfoo` is not, and a
+# command with a `;` or a `|` in it is not a prefix of anything.
+[[rules]]
+tools = ["run"]
+commands = ["git status", "git log", "git diff", "ls", "rg", "cat"]
+then = "allow"
+reason = "reading, not changing"
