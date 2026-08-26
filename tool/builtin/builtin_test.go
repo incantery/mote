@@ -105,8 +105,8 @@ func TestWriteCreatesParents(t *testing.T) {
 	if err != nil || string(body) != "hello\n" {
 		t.Fatalf("%q %v", body, err)
 	}
-	if got := run(t, w, `{"path":"a/b/c.md","content":"again\n"}`); !strings.Contains(got, "wrote") {
-		t.Fatalf("the second time it is not created: %q", got)
+	if got := run(t, w, `{"path":"a/b/c.md","content":"again\n"}`); !strings.Contains(got, "replaced") {
+		t.Fatalf("the second time it is replaced, and says so: %q", got)
 	}
 }
 
@@ -293,11 +293,70 @@ func TestWhatTheToolsDeclare(t *testing.T) {
 	}
 }
 
+// Every built-in says plainly what it did, in a sentence that names
+// what it did it to. A result the model has to guess at is how a
+// refusal gets read as a success — so a tool that changed something
+// leads with the past tense and the path.
+func TestResultsSayWhatHappened(t *testing.T) {
+	dir, tools := repo(t)
+	cases := []struct {
+		tool, args string
+		want       []string
+	}{
+		{"read", `{"path":"README.md"}`, []string{filepath.Join(dir, "README.md"), "3 lines"}},
+		{"list", `{"dir":"agent"}`, []string{filepath.Join(dir, "agent"), "entries"}},
+		{"search", `{"pattern":"func Send","dir":"agent"}`,
+			[]string{filepath.Join(dir, "agent"), "matches"}},
+		{"write", `{"path":"new.md","content":"x\n"}`,
+			[]string{"created ", filepath.Join(dir, "new.md")}},
+		{"write", `{"path":"README.md","content":"x\n"}`,
+			[]string{"replaced ", filepath.Join(dir, "README.md")}},
+		{"edit", `{"path":"agent/agent.go","old":"func Done() {}","new":"func Done() { return }"}`,
+			[]string{"edited ", filepath.Join(dir, "agent", "agent.go"), "line 5"}},
+		{"delete", `{"path":"tui/tui.go"}`, []string{"removed ", filepath.Join(dir, "tui", "tui.go")}},
+		{"run", `{"command":"echo hi"}`, []string{"echo hi", dir, "exited 0"}},
+	}
+	for _, c := range cases {
+		got := run(t, tools[c.tool], c.args)
+		if strings.TrimSpace(got) == "" {
+			t.Errorf("%s said nothing", c.tool)
+			continue
+		}
+		for _, want := range c.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s %s: the result should say %q:\n%s", c.tool, c.args, want, got)
+			}
+		}
+	}
+}
+
+// A search that found nothing, a listing of an empty directory and a
+// command that printed nothing are answers, not silences.
+func TestEmptyResultsStillSaySo(t *testing.T) {
+	dir, tools := repo(t)
+	empty := filepath.Join(dir, "empty")
+	if err := os.Mkdir(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		tool, args, want string
+	}{
+		{"search", `{"pattern":"zzzz","dir":"agent"}`, "no match"},
+		{"list", `{"dir":"empty"}`, "is empty"},
+		{"run", `{"command":"true"}`, "(no output)"},
+		{"read", `{"path":"README.md","from":99}`, "no line 99"},
+	} {
+		if got := run(t, tools[c.tool], c.args); !strings.Contains(got, c.want) {
+			t.Errorf("%s: the result should say %q: %q", c.tool, c.want, got)
+		}
+	}
+}
+
 // Every built-in's schema is JSON Schema that parses, and the
 // registry hands them to the model in the wire shape.
 func TestSchemasAreValidJSON(t *testing.T) {
 	r := Registry(t.TempDir())
-	if got := len(r.Definitions()); got != 6 {
+	if got := len(r.Definitions()); got != 7 {
 		t.Fatalf("%d definitions", got)
 	}
 	for _, d := range r.Definitions() {
