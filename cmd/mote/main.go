@@ -50,8 +50,10 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `mote — a small agent harness
 
 usage:
-  mote demo [-c <id>] [-dir <path>] [-light]
-        the terminal, over a scripted agent. -c reopens a conversation.
+  mote demo [-c <id>] [-dir <path>] [-light] [-style <name>]
+        the terminal, over a scripted agent. -c reopens a conversation;
+        -light and -style say what colour the terminal is, which is
+        otherwise decided from the environment and never asked.
   mote sessions [-dir <path>]
         the conversations on disk, most recently said to first.
   mote version

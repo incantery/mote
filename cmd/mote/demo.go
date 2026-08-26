@@ -45,10 +45,14 @@ func demo(args []string) error {
 	defer open.closeAll()
 
 	f := &fleet{items: seed()}
+	// Which conversation the terminal is on. It starts as the one we
+	// opened and changes under /new — and the terminal is the one who
+	// knows, so it is the one that says: Options.OnConversation.
+	here := &current{id: id}
 	notices := make(chan agent.Event, 8)
 	stop := make(chan struct{})
 	defer close(stop)
-	go f.run(notices, stop)
+	go f.run(notices, stop, 6*time.Second)
 
 	pal := tui.DefaultPalette()
 	switch {
@@ -59,15 +63,17 @@ func demo(args []string) error {
 	}
 
 	return tui.Run(&agent.Fake{}, tui.Options{
-		Name:         "mote",
-		Model:        "fake-1",
-		Conversation: id,
-		Session:      sess,
-		Palette:      &pal,
-		Greeting:     greeting(sess),
-		Side:         f.snapshot,
-		SideTitle:    "fleet",
-		Notices:      notices,
+		Name:           "mote",
+		Model:          "fake-1",
+		Conversation:   id,
+		Session:        sess,
+		Palette:        &pal,
+		Greeting:       greeting(sess),
+		Side:           f.snapshot,
+		SideTitle:      "fleet",
+		StatusRight:    f.summary,
+		OnConversation: here.set,
+		Notices:        notices,
 		Commands: []tui.Command{
 			{Name: "tasks", Help: "the fleet, as lines in the transcript"},
 			{Name: "report", Help: "/report <id> — what a task wrote"},
@@ -104,6 +110,7 @@ func demo(args []string) error {
 				if err != nil {
 					return tui.Fail("session: %v", err)
 				}
+				open.add(next)
 				return tea.Batch(tui.SetConversation(id), tui.SetSession(next),
 					tui.Note("new conversation %s — the old one is still in %s", id, sdir))
 			case "sessions":
@@ -112,12 +119,15 @@ func demo(args []string) error {
 					return tui.Fail("session: %v", err)
 				}
 				var b strings.Builder
+				// The one we are on, not the one we opened: /new
+				// moved it, and OnConversation is how we know.
+				now := here.get()
 				for _, it := range list {
-					here := ""
-					if it.ID == sess.ID() {
-						here = "  ← this one"
+					mark := ""
+					if it.ID == now {
+						mark = "  ← this one"
 					}
-					fmt.Fprintf(&b, "%s  %s%s\n", it.ID, summarize(it), here)
+					fmt.Fprintf(&b, "%s  %s%s\n", it.ID, summarize(it), mark)
 				}
 				if b.Len() == 0 {
 					return tui.Note("no conversations in %s", sdir)
@@ -132,6 +142,26 @@ func demo(args []string) error {
 }
 
 func newConversation() string { return "demo-" + time.Now().Format("20060102-150405") }
+
+// current is the conversation the terminal says it is on. The terminal
+// owns the id — /new hands it one and it may hand back another — so
+// the application is told rather than keeping its own guess.
+type current struct {
+	mu sync.Mutex
+	id string
+}
+
+func (c *current) set(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.id = id
+}
+
+func (c *current) get() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.id
+}
 
 // openFiles is every conversation file this run has opened, so that
 // they can all be closed when it ends.
@@ -174,6 +204,15 @@ func greeting(sess *session.Session) string {
 		"line with `tool`, `test` or `error` in it to pick one.\n\n" +
 		"`ctrl+o` opens the last tool card · `tab` walks the cards · " +
 		"`ctrl+t` hides the rail · `/help` for the rest.\n\n" +
+		"The rail is longer than most windows and says `+N more` for the " +
+		"rest — `/start <brief>` adds another. Each task says " +
+		"what it is doing on **its own line**, which it rewrites rather " +
+		"than repeating. The right of the status line is the fleet in a " +
+		"phrase, refreshed with the rail. `/new` moves the conversation " +
+		"and `/sessions` knows it did.\n\n" +
+		"Nothing here asked the terminal what colour it is — that was " +
+		"settled before the program started, which is why the input box " +
+		"is empty. `-style` and `-light` say it outright.\n\n" +
 		"Kept in `" + sess.Path() + "` — `mote sessions` lists them, " +
 		"`mote demo -c " + sess.ID() + "` reopens this one.\n"
 }
@@ -186,13 +225,56 @@ type fleet struct {
 	n     int
 }
 
+// seed is a fleet big enough to be worth a rail — and, on a window of
+// the usual size, longer than the rail has room for, which is the
+// point: it says "+N more" rather than stopping quietly. The briefs
+// are mote's own backlog, out of GAPS.md.
 func seed() []tui.SideItem {
-	return []tui.SideItem{
-		{ID: "184a1100", Title: "build mote's first milestone", Subtitle: "mote", State: tui.Working, Current: true},
-		{ID: "c41f9a02", Title: "tool registry with policy", Subtitle: "mote", State: tui.Idle},
-		{ID: "7b20e5d9", Title: "session on disk, resumable", Subtitle: "mote", State: tui.Blocked},
-		{ID: "0f3c8811", Title: "anthropic-native provider", Subtitle: "mote", State: tui.Done},
+	rows := []struct {
+		id, title string
+		state     tui.State
+	}{
+		{"184a1100", "build mote's first milestone", tui.Working},
+		{"c41f9a02", "tool registry with policy", tui.Idle},
+		{"7b20e5d9", "session on disk, resumable", tui.Blocked},
+		{"0f3c8811", "anthropic-native provider", tui.Done},
+		{"3d97ea44", "mcp, as a source of tools", tui.Idle},
+		{"5c118f6b", "the rail says what it dropped", tui.Working},
+		{"aa02d517", "a notice with an identity", tui.Done},
+		{"6e4b3390", "cost as a receipt, not a number", tui.Idle},
+		{"91cc7d28", "publish the module", tui.Blocked},
+		{"b7f4a061", "mote dump <id>, without the terminal", tui.Idle},
+		{"2e59c8d3", "prune a conversation that grew forever", tui.Idle},
+		{"c803be15", "verad's run id, for reattaching", tui.Blocked},
+		{"48d1607a", "a status per milestone, from the pane", tui.Failed},
+		{"f6a2934c", "os.UserStateDir, when Go ships it", tui.Idle},
 	}
+	out := make([]tui.SideItem, 0, len(rows))
+	for i, r := range rows {
+		out = append(out, tui.SideItem{
+			ID: r.id, Title: r.title, Subtitle: "mote", State: r.state, Current: i == 0,
+		})
+	}
+	return out
+}
+
+// summary is the fleet in one line, for the right of the status bar:
+// what is true all the time, in the order a person would act on it,
+// and only the states there are any of.
+func (f *fleet) summary() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := map[tui.State]int{}
+	for _, it := range f.items {
+		n[it.State]++
+	}
+	var parts []string
+	for _, st := range []tui.State{tui.Blocked, tui.Failed, tui.Working, tui.Done, tui.Idle} {
+		if n[st] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n[st], st))
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (f *fleet) snapshot() []tui.SideItem {
@@ -211,10 +293,12 @@ func (f *fleet) add(brief string) string {
 }
 
 // run walks a task through its states every few seconds and says so.
-func (f *fleet) run(out chan<- agent.Event, stop <-chan struct{}) {
+// Each notice is about the task, not about the moment, so the fourth
+// thing said about a task replaces the third rather than joining it.
+func (f *fleet) run(out chan<- agent.Event, stop <-chan struct{}, every time.Duration) {
 	defer close(out)
 	order := []tui.State{tui.Working, tui.Blocked, tui.Done, tui.Idle, tui.Failed}
-	t := time.NewTicker(6 * time.Second)
+	t := time.NewTicker(every)
 	defer t.Stop()
 	i := 0
 	for {
@@ -233,7 +317,7 @@ func (f *fleet) run(out chan<- agent.Event, stop <-chan struct{}) {
 			f.mu.Unlock()
 			i++
 			select {
-			case out <- agent.Notice(fmt.Sprintf("%s is %s — %s", id, st, title)):
+			case out <- agent.About(id, fmt.Sprintf("%s is %s — %s", id, st, title)):
 			case <-stop:
 				return
 			}
