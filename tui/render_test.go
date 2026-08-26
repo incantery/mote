@@ -123,7 +123,8 @@ func TestExpandedCardGolden(t *testing.T) {
 }
 
 // The whole screen, at the two sizes the brief names. The input is
-// blurred so no cursor lands in the golden file.
+// blurred so that the box is drawn the way an unfocused one is; the
+// cursor is a field of the frame now and was never in the content.
 func TestScreenGolden(t *testing.T) {
 	side := func() []SideItem {
 		return []SideItem{
