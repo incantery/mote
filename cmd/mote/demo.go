@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -234,11 +235,15 @@ func policyText(p *profile.Profile, from string) string {
 	for _, r := range p.Policy.Roots {
 		b.WriteString("- `" + r + "`\n")
 	}
-	b.WriteString("\n| tools | paths / commands | then | why |\n| --- | --- | --- | --- |\n")
+	b.WriteString("\n| tools | paths / commands / arguments | then | why |\n| --- | --- | --- | --- |\n")
 	for _, r := range p.Policy.Rules {
-		what := strings.Join(append(append([]string(nil), r.Paths...), r.Commands...), "`, `")
+		parts := append(append([]string(nil), r.Paths...), r.Commands...)
+		for name, value := range r.When {
+			parts = append(parts, name+"="+value)
+		}
+		sort.Strings(parts[len(r.Paths)+len(r.Commands):])
 		fmt.Fprintf(&b, "| `%s` | `%s` | **%s** | %s |\n",
-			strings.Join(r.Tools, "`, `"), what, r.Then, r.Reason)
+			strings.Join(r.Tools, "`, `"), strings.Join(parts, "`, `"), r.Then, r.Reason)
 	}
 	b.WriteString("\nPer tool, when no rule matched:\n\n")
 	for _, name := range p.Tools {
@@ -246,7 +251,7 @@ func policyText(p *profile.Profile, from string) string {
 			fmt.Fprintf(&b, "- `%s` — **%s**\n", name, d)
 		}
 	}
-	b.WriteString("\nSay something with **policy** in it to watch it decide nine real calls.\n")
+	b.WriteString("\nSay something with **policy** in it to watch it decide eleven real calls.\n")
 	return b.String()
 }
 
@@ -266,9 +271,10 @@ func greeting(sess *session.Session, repo, from, scratch string) string {
 			sess.ID(), n, turns, sess.Path())
 	}
 	return "# mote demo\n\n" + resumed +
-		"Say a line with **policy** in it and the demo runs nine real " +
-		"tool calls — `list`, `read`, `search`, `run`, four writes and a " +
-		"`delete` — against `" + repo + "`, decided by the supervisor " +
+		"Say a line with **policy** in it and the demo runs eleven real " +
+		"tool calls — `list`, `read`, `search`, `run`, four writes, a " +
+		"`delete` and two of the harness's own `room` — against `" + repo +
+		"`, decided by the supervisor " +
 		"profile in `" + from + "`. One is denied because the checkout is " +
 		"a project root; one stops and **asks**, with `y` / `n` / `a` on " +
 		"the card; the last retracts a fact under her own home, which is " +

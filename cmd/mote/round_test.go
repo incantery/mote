@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,9 +86,10 @@ func byID(evs []agent.Event, kind agent.Kind, id string) *agent.Event {
 	return nil
 }
 
-// The nine calls, decided by the profile as written: five allowed
-// outright, one denied in the profile's own words, two that stop and
-// ask, and a delete under her own home that does not.
+// The eleven calls, decided by the profile as written: five allowed
+// outright, one denied in the profile's own words, three that stop
+// and ask, a delete under her own home that does not, and the
+// harness's own tool that the profile never listed.
 func TestRoundDecisions(t *testing.T) {
 	r, repo, scratch := newTestRound(t)
 	evs := play(t, r, agent.Yes)
@@ -296,6 +298,94 @@ func TestPolicyTextIsTheProfile(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// The last two calls are the harness's own tool: one the profile
+// never listed and cannot drop, whose verb — not whose name — is the
+// question a rule and an "always" are about.
+func TestRoundOwnedToolAndArgumentRule(t *testing.T) {
+	r, _, _ := newTestRound(t)
+	evs := play(t, r, agent.Yes)
+
+	// It is there although `profiles/supervisor` lists six built-ins
+	// and nothing else.
+	if _, ok := r.reg.Get("room"); !ok {
+		t.Fatal("the harness's own tool did not survive the profile's tools: line")
+	}
+	if !r.reg.Owns("room") {
+		t.Fatal("room should be owned")
+	}
+
+	// Opening one is allowed: handing work away is what a supervisor
+	// is for.
+	if byID(evs, agent.KindAsk, "c10") != nil {
+		t.Error("opening a room should not have asked")
+	}
+	open := byID(evs, agent.KindToolResult, "c10")
+	if open == nil || !strings.Contains(open.Result, "opened r-") {
+		t.Fatalf("c10: %+v", open)
+	}
+	// The harness's Values reached the tool.
+	if !strings.Contains(open.Result, "the demo") {
+		t.Errorf("the tool was not told who asked: %q", open.Result)
+	}
+	// And the harness's own voice reached the person before the
+	// result did.
+	var said []string
+	for _, ev := range evs {
+		if ev.Kind == agent.KindStatus {
+			said = append(said, ev.Text)
+		}
+	}
+	if !slices.ContainsFunc(said, func(s string) bool {
+		return strings.HasPrefix(s, "Opening a room for the mcp milestone")
+	}) {
+		t.Errorf("the tool never spoke in the harness's voice: %q", said)
+	}
+
+	// Stopping one asks, and the rule that says so keys on the
+	// argument rather than on the tool.
+	ask := byID(evs, agent.KindAsk, "c11")
+	if ask == nil {
+		t.Fatal("stopping a room should have asked")
+	}
+	if !strings.Contains(ask.Text, "abandons the work in it") {
+		t.Errorf("ask says %q", ask.Text)
+	}
+	// An always here would cover the verb the tool stated, not the
+	// tool: saying it to a stop does not hand over an open.
+	if !strings.Contains(ask.Text, "always would cover room stop") {
+		t.Errorf("the ask does not say what an always covers: %q", ask.Text)
+	}
+}
+
+// Meta is what the harness records and the model is never told.
+func TestRoundRecordsResultMeta(t *testing.T) {
+	r, _, _ := newTestRound(t)
+	evs := play(t, r, agent.Yes)
+
+	open := byID(evs, agent.KindToolResult, "c10")
+	if open == nil {
+		t.Fatal("c10 never ran")
+	}
+	// The cost rode out on the result event, the way a tool's cost
+	// already does.
+	if open.Cost != 0.014 {
+		t.Errorf("cost %v", open.Cost)
+	}
+	// The task id is in the reply's record of the round, and not in
+	// what the model was told.
+	var reply strings.Builder
+	for _, ev := range evs {
+		if ev.Kind == agent.KindDelta {
+			reply.WriteString(ev.Text)
+		}
+	}
+	for _, want := range []string{"Result.Meta", "`room` — cost=0.014, session=s-r-", "task=r-"} {
+		if !strings.Contains(reply.String(), want) {
+			t.Errorf("the reply should carry %q:\n%s", want, reply.String())
 		}
 	}
 }
