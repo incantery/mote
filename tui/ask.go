@@ -57,7 +57,7 @@ func (m *Model) raise(ev agent.Event) {
 	m.commit()
 	// Two at once is not a shape this terminal has, but if it ever
 	// happens the older one is not left looking answerable.
-	m.cancelAsk()
+	m.cancelAsk(true)
 	e := &entry{kind: entryAsk, id: ev.ID, name: ev.Name, args: ev.Args, text: ev.Text}
 	if ev.Result != "" {
 		// A recorded ask, replayed: it was answered once and does not
@@ -107,10 +107,15 @@ func (m *Model) answer(choice string) tea.Cmd {
 	}
 }
 
-// cancelAsk closes an open ask because the exchange ended. The agent
-// is told no — a harness still parked on the question has to be let
-// go, and the turn is over, so there is nothing to wait for.
-func (m *Model) cancelAsk() {
+// cancelAsk closes an open ask because the exchange ended.
+//
+// tell says whether the agent hears about it. A live turn that ended
+// with a question open has to be told no — a harness still parked on
+// it has to be let go, and nothing is coming. A transcript being
+// replayed from a file has nobody parked on anything, and telling the
+// agent about a call id out of last week's conversation is how a
+// fresh call with the same id gets answered before it is asked.
+func (m *Model) cancelAsk(tell bool) {
 	e := m.openAsk()
 	if e == nil {
 		return
@@ -119,7 +124,11 @@ func (m *Model) cancelAsk() {
 	m.touch(m.ask)
 	m.ask = -1
 	m.in.enable(true)
+	if !tell {
+		return
+	}
 	if a, ok := m.agent.(agent.Answerer); ok {
+		// Off the UI goroutine: nothing promises Answer is quick.
 		id := e.id
 		go func() { _ = a.Answer(context.Background(), id, agent.No) }()
 	}

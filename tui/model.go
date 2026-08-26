@@ -175,7 +175,7 @@ func (m *Model) restore() {
 		m.commit()
 		// A file can hold a question the turn ended on; replaying it
 		// must not stop the terminal on an answer nobody can give.
-		m.cancelAsk()
+		m.cancelAsk(false)
 		m.total += t.Cost
 		m.totalIn += t.InputTokens
 		m.totalOut += t.OutputTokens
@@ -703,7 +703,7 @@ func (m *Model) spend(cost float64, in, out int) {
 func (m *Model) finish(err error) {
 	m.commit()
 	// A done with a question still open cancels it.
-	m.cancelAsk()
+	m.cancelAsk(true)
 	if err != nil {
 		m.add(&entry{kind: entryError, text: err.Error()})
 	}

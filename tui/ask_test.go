@@ -291,7 +291,7 @@ func TestAskRoundTripsThroughATurn(t *testing.T) {
 func TestACancelledAskRoundTrips(t *testing.T) {
 	m := asked(t, &answers{})
 	m.turnStart = 0
-	m.cancelAsk()
+	m.cancelAsk(true)
 	evs := m.record().Events
 	var ask agent.Event
 	for _, ev := range evs {
@@ -304,7 +304,7 @@ func TestACancelledAskRoundTrips(t *testing.T) {
 	}
 	m2 := plain(t, 100, 30, Options{Name: "mote"})
 	step(m2, events(ask)...)
-	m2.cancelAsk()
+	m2.cancelAsk(false)
 	if m2.asking() || !m2.entries[0].cancelled {
 		t.Fatalf("%+v", m2.entries[0])
 	}

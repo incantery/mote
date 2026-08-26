@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/incantery/mote/agent"
 	"github.com/incantery/mote/session"
 )
@@ -425,5 +426,51 @@ func TestSessionKeepsWhatANoticeWasAbout(t *testing.T) {
 	}
 	if !strings.Contains(got, "is done") {
 		t.Errorf("the notice never caught up:\n%s", got)
+	}
+}
+
+// A conversation that ended on a question comes back with the
+// question, closed — and nobody is told about it. Answering a call id
+// out of an old conversation is how a fresh call with the same id
+// gets answered before it is asked.
+func TestReopeningACancelledAskTellsNobody(t *testing.T) {
+	dir := t.TempDir()
+	s, err := session.Open(dir, "asked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(session.Turn{
+		At: time.Now(), Said: "write something",
+		Events: []agent.Event{agent.Asking("call_7", "write", `{"path":"/tmp/x"}`, "ask")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	again, err := session.Open(dir, "asked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	a := &answers{}
+	pal := DefaultPalette()
+	pal.Markdown = "ascii"
+	m := New(a, Options{Name: "mote", Palette: &pal, Session: again})
+	step(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	if m.asking() {
+		t.Fatal("a replayed question must not stop the terminal")
+	}
+	if len(a.all()) != 0 {
+		t.Fatalf("nobody should have been answered: %v", a.all())
+	}
+	var card *entry
+	for _, e := range m.entries {
+		if e.kind == entryAsk {
+			card = e
+		}
+	}
+	if card == nil || !card.cancelled {
+		t.Fatalf("the question should be back, closed: %+v", card)
 	}
 }

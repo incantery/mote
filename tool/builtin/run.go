@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -96,6 +97,12 @@ func (r Run) Run(ctx context.Context, args json.RawMessage, out io.Writer) (tool
 			return tool.Result{}, err
 		}
 		dir = abs
+	}
+	if dir == "" {
+		// The header says where it ran, and "" is not a place.
+		if wd, err := os.Getwd(); err == nil {
+			dir = wd
+		}
 	}
 
 	timeout := DefaultTimeout
