@@ -94,16 +94,23 @@ func TestGreetingNamesTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	g := greeting(s)
+	g := greeting(s, "/src/mote", "/src/mote/profiles/supervisor", "/tmp/mote-demo-x")
 	if !strings.Contains(g, s.Path()) || !strings.Contains(g, "mote demo -c demo-1") {
 		t.Fatalf("a fresh greeting must say where it is kept:\n%s", g)
+	}
+	// And where the policy came from, since that is what decides what
+	// the demo is allowed to do.
+	for _, want := range []string{"/src/mote/profiles/supervisor", "/tmp/mote-demo-x", "policy"} {
+		if !strings.Contains(g, want) {
+			t.Fatalf("the greeting must name %q:\n%s", want, g)
+		}
 	}
 	if strings.Contains(g, "Reopened") {
 		t.Fatal("nothing to reopen yet")
 	}
 
 	s.Append(session.Turn{At: time.Now(), Said: "hello"})
-	if g := greeting(s); !strings.Contains(g, "Reopened **demo-1** — 1 turn above") {
+	if g := greeting(s, "/src/mote", "/src/mote/profiles/supervisor", "/tmp/mote-demo-x"); !strings.Contains(g, "Reopened **demo-1** — 1 turn above") {
 		t.Fatalf("a reopened greeting must say so:\n%s", g)
 	}
 }

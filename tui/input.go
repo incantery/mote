@@ -86,6 +86,18 @@ func newInput(st styles, placeholder string) *input {
 	return &input{ta: ta, at: 0}
 }
 
+// enable gives the box back, or takes it away. A blurred box takes
+// no keys and shows no cursor, which is exactly what a terminal
+// waiting on an answer wants.
+func (in *input) enable(on bool) {
+	if on {
+		in.ta.Focus()
+		return
+	}
+	in.ta.Blur()
+	in.sugg = nil
+}
+
 func (in *input) value() string { return in.ta.Value() }
 func (in *input) empty() bool   { return strings.TrimSpace(in.ta.Value()) == "" }
 

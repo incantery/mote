@@ -80,6 +80,13 @@ type Model struct {
 	focus int // index of the focused tool card, -1 for none
 	frame int // spinner
 
+	// The question the terminal is stopped on: the entry's index, -1
+	// when there is none. askRow is where its choices line landed in
+	// the transcript, so a click can be matched to a key.
+	ask      int
+	askRow   int
+	askSpans []askSpan
+
 	events    chan tea.Msg
 	animating bool
 }
@@ -113,6 +120,8 @@ func New(a agent.Agent, opts Options) *Model {
 		follow:       true,
 		in:           newInput(st, opts.Placeholder),
 		focus:        -1,
+		ask:          -1,
+		askRow:       -1,
 		turnStart:    -1,
 		sess:         opts.Session,
 		events:       make(chan tea.Msg, 128),
@@ -164,6 +173,9 @@ func (m *Model) restore() {
 			m.apply(ev)
 		}
 		m.commit()
+		// A file can hold a question the turn ended on; replaying it
+		// must not stop the terminal on an answer nobody can give.
+		m.cancelAsk(false)
 		m.total += t.Cost
 		m.totalIn += t.InputTokens
 		m.totalOut += t.OutputTokens
@@ -187,6 +199,16 @@ func (m *Model) record() session.Turn {
 			t.Events = append(t.Events, agent.About(e.id, e.text))
 		case entryError:
 			t.Events = append(t.Events, agent.Fail(e.text))
+		case entryAsk:
+			// The answer goes with the question: a reopened
+			// conversation shows what was asked and what was said,
+			// rather than asking it again of somebody who cannot
+			// answer it any more.
+			if e.cancelled {
+				t.Events = append(t.Events, agent.Asking(e.id, e.name, e.args, e.text))
+				break
+			}
+			t.Events = append(t.Events, agent.Answered(e.id, e.name, e.args, e.text, e.answer))
 		case entryTool:
 			t.Events = append(t.Events, agent.Call(e.id, e.name, e.args))
 			if e.output != "" {
@@ -351,6 +373,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		if cmd, took := m.clickAsk(msg); took {
+			m.refresh()
+			return m, cmd
+		}
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
 		m.follow = m.vp.AtBottom()
@@ -360,12 +386,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.key(msg)
 	}
 
+	if m.asking() {
+		return m, nil // the box is not taking dictation
+	}
 	cmd := m.in.update(msg)
 	m.layout()
 	return m, cmd
 }
 
 func (m *Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// A question takes the keyboard until it is answered.
+	if m.asking() {
+		if cmd, took := m.askKey(msg); took {
+			m.refresh()
+			return m, cmd
+		}
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -591,6 +627,9 @@ func (m *Model) apply(ev agent.Event) {
 		}
 		m.spend(ev.Cost, 0, 0)
 
+	case agent.KindAsk:
+		m.raise(ev)
+
 	case agent.KindNotice:
 		// A notice belongs to the world, not to the reply, so it goes
 		// above the answer still being written rather than splitting it.
@@ -663,6 +702,8 @@ func (m *Model) spend(cost float64, in, out int) {
 
 func (m *Model) finish(err error) {
 	m.commit()
+	// A done with a question still open cancels it.
+	m.cancelAsk(true)
 	if err != nil {
 		m.add(&entry{kind: entryError, text: err.Error()})
 	}
@@ -890,6 +931,9 @@ func (m *Model) transcript() string {
 	if m.focus >= 0 {
 		limit = min(limit, m.focus)
 	}
+	if m.ask >= 0 {
+		limit = min(limit, m.ask)
+	}
 	var grown strings.Builder
 	for m.stableN < limit && !m.entries[m.stableN].volatile() {
 		grown.WriteString(m.renderEntry(m.entries[m.stableN], w, false))
@@ -900,15 +944,27 @@ func (m *Model) transcript() string {
 
 	var b strings.Builder
 	b.WriteString(m.stable)
+	// Where the open question's choices landed, counted as the
+	// transcript is built — the mouse has no other way to know.
+	m.askRow, m.askSpans = -1, nil
+	row := strings.Count(m.stable, "\n")
 	for i := m.stableN; i < len(m.entries); i++ {
-		b.WriteString(m.renderEntry(m.entries[i], w, i == m.focus))
+		rendered := m.renderEntry(m.entries[i], w, i == m.focus)
+		if i == m.ask && m.openAsk() != nil {
+			m.askRow, m.askSpans = row+strings.Count(rendered, "\n"), askSpans()
+		}
+		b.WriteString(rendered)
 		b.WriteString("\n\n")
+		row += strings.Count(rendered, "\n") + 3
 	}
 	if m.partial != "" {
 		b.WriteString(m.md.render(m.partial, w, true))
 		b.WriteString("\n\n")
 	}
+	// Nothing is happening while a question is open: the card is the
+	// thing to look at, and a spinner under it says the opposite.
 	switch {
+	case m.asking():
 	case m.statusText != "":
 		b.WriteString(m.st.status.Render(spinnerFrame(m.frame) + " " + m.statusText))
 	case m.inflight && m.partial == "":
@@ -972,7 +1028,10 @@ func (m *Model) statusLine() string {
 	if m.conversation != "" {
 		left += " · " + m.conversation
 	}
-	if m.inflight {
+	switch {
+	case m.asking():
+		left += " · waiting for you"
+	case m.inflight:
 		left += " · " + spinnerFrame(m.frame) + " working"
 	}
 	if t := m.totals(); t != "" {
@@ -1017,6 +1076,9 @@ func (m *Model) totals() string {
 }
 
 func (m *Model) hints() string {
+	if m.asking() {
+		return askHint()
+	}
 	if e := m.focused(); e != nil {
 		if e.expanded {
 			return "ctrl+o close · pgup/pgdn result · esc unfocus"
@@ -1046,6 +1108,7 @@ func (m *Model) helpText() string {
 		{"pgup / pgdn", "scroll — the focused card's result if one is open"},
 		{"ctrl+l", "back to the tail"},
 		{"ctrl+t, f2", "the side pane"},
+		{"y / n / a", "answer a question — yes, no, always (esc is no)"},
 		{"esc", "close completion, let go of a card, stop the turn"},
 		{"ctrl+c, ctrl+d", "quit"},
 	} {

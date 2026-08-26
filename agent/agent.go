@@ -35,6 +35,12 @@ const (
 	// and Cost if the agent knows one. It ends the call, whether
 	// anything was streamed or not.
 	KindToolResult Kind = "tool_result"
+	// KindAsk is a tool the harness will not run without a person's
+	// word: ID, Name, Args, and Text saying why it is asking. It does
+	// not end the stream — the exchange is waiting on the answer, and
+	// nothing else arrives until Answerer.Answer is called with the
+	// same ID. A KindDone with an ask still open cancels it.
+	KindAsk Kind = "ask"
 	// KindNotice is something that happened outside this exchange —
 	// a task finished, a file changed. It may arrive mid-reply. An
 	// ID is optional and means the notice is about a thing rather
@@ -55,21 +61,28 @@ const (
 type Event struct {
 	Kind Kind `json:"kind"`
 
-	// Text is the delta, the status line, the notice, the error, or a
-	// piece of a tool's output, depending on Kind.
+	// Text is the delta, the status line, the notice, the error, the
+	// reason an ask is being asked, or a piece of a tool's output,
+	// depending on Kind.
 	Text string `json:"text,omitempty"`
 
-	// ID ties a KindToolOutput or KindToolResult to its KindToolCall,
-	// and gives a KindNotice an identity: a later notice with the same
+	// ID ties a KindToolOutput, KindToolResult or KindAsk to its
+	// KindToolCall — an ask carries the call's own id, because the
+	// answer is about that call and nothing else — and gives a
+	// KindNotice an identity: a later notice with the same
 	// ID replaces the line the earlier one left, rather than leaving
 	// two. A notice without one is a moment and keeps its place.
 	ID string `json:"id,omitempty"`
-	// Name is the tool's name (KindToolCall).
+	// Name is the tool's name (KindToolCall, KindAsk).
 	Name string `json:"name,omitempty"`
-	// Args is the tool's arguments as JSON (KindToolCall). It is a
+	// Args is the tool's arguments as JSON (KindToolCall, KindAsk). It is a
 	// string, not a map: the terminal shows it, it does not read it.
 	Args string `json:"args,omitempty"`
 	// Result is what the tool returned (KindToolResult). Often long.
+	// On a KindAsk it is the answer — "yes", "no" or "always" — which
+	// is only ever set on an ask that has already been answered: a
+	// recorded exchange, replayed, comes back with the answer in it
+	// rather than as a question nobody can answer any more.
 	Result string `json:"result,omitempty"`
 	// Duration is how long the tool took (KindToolResult).
 	Duration time.Duration `json:"duration,omitempty"`
@@ -84,6 +97,34 @@ type Event struct {
 	// provider fills them in, and one that does not leaves them.
 	InputTokens  int `json:"input_tokens,omitempty"`
 	OutputTokens int `json:"output_tokens,omitempty"`
+}
+
+// The three answers to an ask. They are strings rather than a type
+// because they cross a wire — a terminal over HTTP posts one — and a
+// harness that receives a fourth should say so rather than guess.
+const (
+	// Yes runs this call, and asks again next time.
+	Yes = "yes"
+	// No does not run it. The model is told the person declined.
+	No = "no"
+	// Always runs it and stops asking about calls like it for the
+	// rest of the session. What "like it" means is the harness's to
+	// decide — see tool.Gate, which decides it as the directory for a
+	// file and the program for a command.
+	Always = "always"
+)
+
+// Answerer is an agent that can be answered.
+//
+// An agent that never asks does not implement it, and a terminal that
+// finds an agent does not is a terminal that will never see an ask.
+// Answer is called from the terminal, off the agent's own goroutine,
+// with the ID of the KindAsk event. Answering an id that is not open
+// — because the turn ended, or because it was answered already — is
+// not an error: the person pressed a key at the same moment as
+// something else happened, and that is not a failure.
+type Answerer interface {
+	Answer(ctx context.Context, id, choice string) error
 }
 
 // Agent is the whole of what a terminal needs.
@@ -149,6 +190,21 @@ func Output(id, text string) Event {
 // Result is a tool having run. Pass cost 0 when it is not known.
 func Result(id, result string, d time.Duration, cost float64) Event {
 	return Event{Kind: KindToolResult, ID: id, Result: result, Duration: d, Cost: cost}
+}
+
+// Asking is a tool call the harness will not run without a word from
+// the person. why is what it puts on the card: the policy's reason,
+// in the profile's own words when it had any.
+func Asking(id, name, args, why string) Event {
+	return Event{Kind: KindAsk, ID: id, Name: name, Args: args, Text: why}
+}
+
+// Answered is an ask that has already been answered. It is what a
+// recorded exchange holds: the question, and what the person said.
+func Answered(id, name, args, why, choice string) Event {
+	ev := Asking(id, name, args, why)
+	ev.Result = choice
+	return ev
 }
 
 // Done ends an exchange.

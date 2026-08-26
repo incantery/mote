@@ -1,0 +1,6 @@
+┃ ? write  path=/tmp/scratch/notes.md content=# what the policy decided
+┃   outside ~/vera and not a project — the profile says ask
+┃   [y] yes   [n] no   [a] always
+
+  ✓ write  path=/tmp/scratch/notes.md content=# what the policy… you said always
+    outside ~/vera and not a project — the profile says ask
