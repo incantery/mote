@@ -417,3 +417,219 @@ func TestInputSchema(t *testing.T) {
 		t.Fatalf("an absent schema became %v", empty.Properties)
 	}
 }
+
+// The thinking a turn did, kept and handed back.
+//
+// This is the one thing the Messages API is unforgiving about. With
+// extended thinking on — which is what a Claude 5 does when nobody
+// says otherwise — an assistant turn that thought and then called a
+// tool has to come back with its thinking blocks, and their
+// signatures, in front of the tool call. Drop them and the API
+// refuses the conversation, not the turn.
+const (
+	claudeThinkOpen = `{"type":"content_block_start","index":0,` +
+		`"content_block":{"type":"thinking","thinking":"","signature":""}}`
+	claudeThought = `{"type":"content_block_delta","index":0,` +
+		`"delta":{"type":"thinking_delta","thinking":"GAPS.md is small enough to read whole"}}`
+	claudeSigned = `{"type":"content_block_delta","index":0,` +
+		`"delta":{"type":"signature_delta","signature":"ErUBCkYIBRgCIkA"}}`
+	claudeThinkShut = `{"type":"content_block_stop","index":0}`
+	claudeRedacted  = `{"type":"content_block_start","index":1,` +
+		`"content_block":{"type":"redacted_thinking","data":"EroBCkYIBRgCKk"}}`
+	claudeRedactedShut = `{"type":"content_block_stop","index":1}`
+)
+
+// thoughtThenTool is a first turn that thinks, has a thought it will
+// not show, and then calls a tool.
+func thoughtThenTool() string {
+	return events(
+		"message_start", claudeStart,
+		"content_block_start", claudeThinkOpen,
+		"content_block_delta", claudeThought,
+		"content_block_delta", claudeSigned,
+		"content_block_stop", claudeThinkShut,
+		"content_block_start", claudeRedacted,
+		"content_block_stop", claudeRedactedShut,
+		"content_block_start", claudeToolOpen,
+		"content_block_delta", claudeToolOne,
+		"content_block_delta", claudeToolTwo,
+		"content_block_delta", claudeToolThree,
+		"content_block_stop", claudeToolShut,
+		"message_delta", claudeStopTool,
+		"message_stop", claudeStop,
+	)
+}
+
+// blocks is the content of the nth request's mth message.
+func blocks(t *testing.T, w *wire, n, m int) []map[string]any {
+	t.Helper()
+	msgs, _ := w.sent(t, n)["messages"].([]any)
+	if m >= len(msgs) {
+		t.Fatalf("request %d has %d messages", n, len(msgs))
+	}
+	msg, _ := msgs[m].(map[string]any)
+	content, ok := msg["content"].([]any)
+	if !ok {
+		t.Fatalf("message %d is not blocks: %v", m, msg)
+	}
+	out := make([]map[string]any, 0, len(content))
+	for _, b := range content {
+		block, _ := b.(map[string]any)
+		out = append(out, block)
+	}
+	return out
+}
+
+func TestAnthropicRoundTripsThinking(t *testing.T) {
+	t.Setenv(EnvAnthropicKey, "sk-ant-test")
+	w := serve(t, thoughtThenTool(), claudeTurnTwo())
+	p := NewAnthropic(w.URL, "sk-ant-test")
+
+	req := Request{Messages: []Message{User("how many gaps?")}}
+	var first collect
+	if _, err := p.Stream(t.Context(), req, first.on); err != nil {
+		t.Fatal(err)
+	}
+	if first.think.String() != "GAPS.md is small enough to read whole" {
+		t.Fatalf("thought %q", first.think.String())
+	}
+	// The harness is handed one opaque thing, at the end, and does
+	// not read it.
+	if len(first.raw) == 0 {
+		t.Fatal("nothing came back to hand over")
+	}
+	if !strings.Contains(string(first.raw), "ErUBCkYIBRgCIkA") {
+		t.Fatalf("the signature is not in what was kept: %s", first.raw)
+	}
+
+	// Round two: the assistant turn, with what the provider asked to
+	// be kept, and the tool result.
+	assistant := Assistant(first.text.String(), first.calls[0])
+	assistant.Raw = first.raw
+	req.Messages = append(req.Messages, assistant, Answer(first.calls[0].ID, "nine rows"))
+	var second collect
+	if _, err := p.Stream(t.Context(), req, second.on); err != nil {
+		t.Fatal(err)
+	}
+	if second.text.String() != "Nine rows." {
+		t.Fatalf("said %q", second.text.String())
+	}
+
+	// And this is what went on the wire: the thinking first, with its
+	// signature, then the redacted one, then the tool call it led to.
+	got := blocks(t, w, 1, 1)
+	if len(got) != 3 {
+		t.Fatalf("%d blocks in the assistant turn: %v", len(got), got)
+	}
+	if got[0]["type"] != "thinking" || got[0]["signature"] != "ErUBCkYIBRgCIkA" ||
+		got[0]["thinking"] != "GAPS.md is small enough to read whole" {
+		t.Fatalf("the first block is %v", got[0])
+	}
+	if got[1]["type"] != "redacted_thinking" || got[1]["data"] != "EroBCkYIBRgCKk" {
+		t.Fatalf("the second block is %v", got[1])
+	}
+	if got[2]["type"] != "tool_use" || got[2]["id"] != "toolu_1" {
+		t.Fatalf("the third block is %v", got[2])
+	}
+	// The turn said nothing, so there is no text block — and an empty
+	// one would be a 400 of its own.
+	for _, b := range got {
+		if b["type"] == "text" {
+			t.Fatalf("an empty text block went out: %v", b)
+		}
+	}
+}
+
+// A turn with nothing to keep hands nothing over, and a request with
+// thinking turned off must not carry somebody's thinking blocks.
+func TestAnthropicKeepsNothingWhenThereIsNothing(t *testing.T) {
+	t.Setenv(EnvAnthropicKey, "sk-ant-test")
+	w := serve(t, claudeTurnOne(), claudeTurnTwo())
+	p := NewAnthropic(w.URL, "sk-ant-test")
+
+	var first collect
+	if _, err := p.Stream(t.Context(), Request{Messages: []Message{User("how many gaps?")}}, first.on); err != nil {
+		t.Fatal(err)
+	}
+	if first.raw != nil {
+		t.Fatalf("a turn that did not think kept %s", first.raw)
+	}
+
+	// Thinking off, and an assistant turn that has blocks from when
+	// it was on: they stay behind.
+	assistant := Assistant("Let me look. ", Call{ID: "toolu_1", Name: "read", Arguments: `{"path":"GAPS.md"}`})
+	assistant.Raw = json.RawMessage(`[{"type":"thinking","thinking":"hm","signature":"sig"}]`)
+	var second collect
+	if _, err := p.Stream(t.Context(), Request{
+		Thinking: ThinkingOff,
+		Messages: []Message{User("how many gaps?"), assistant, Answer("toolu_1", "nine rows")},
+	}, second.on); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range blocks(t, w, 1, 1) {
+		if b["type"] == "thinking" {
+			t.Fatalf("a request with thinking off carried one: %v", b)
+		}
+	}
+	// Raw that is not this provider's is not a reason to fail a turn.
+	assistant.Raw = json.RawMessage(`"somebody else's"`)
+	if _, err := p.Stream(t.Context(), Request{
+		Messages: []Message{User("again?"), assistant, Answer("toolu_1", "nine rows")},
+	}, (&collect{}).on); err != nil {
+		t.Fatalf("unreadable Raw ended the turn: %v", err)
+	}
+}
+
+// Thinking and its display are two dials. display lives on the
+// adaptive config, so asking for one asks for the other.
+func TestAnthropicThinkingConfig(t *testing.T) {
+	t.Setenv(EnvAnthropicKey, "sk-ant-test")
+	for _, c := range []struct {
+		name string
+		req  Request
+		want any
+	}{
+		{"nothing said", Request{}, nil},
+		{"adaptive", Request{Thinking: ThinkingAdaptive},
+			map[string]any{"type": "adaptive"}},
+		{"off", Request{Thinking: ThinkingOff},
+			map[string]any{"type": "disabled"}},
+		{"omitted", Request{ThinkingDisplay: DisplayOmitted},
+			map[string]any{"type": "adaptive", "display": "omitted"}},
+		{"summarized, said out loud", Request{Thinking: ThinkingAdaptive, ThinkingDisplay: DisplaySummarized},
+			map[string]any{"type": "adaptive", "display": "summarized"}},
+		// Off wins: a caller who turned thinking off does not get an
+		// adaptive config because they also said how to show it.
+		{"off beats display", Request{Thinking: ThinkingOff, ThinkingDisplay: DisplayOmitted},
+			map[string]any{"type": "disabled"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := serve(t, claudeTurnTwo())
+			if _, err := NewAnthropic(w.URL, "sk-ant-test").Stream(t.Context(), c.req, func(Event) {}); err != nil {
+				t.Fatal(err)
+			}
+			got := w.sent(t, 0)["thinking"]
+			if c.want == nil {
+				if got != nil {
+					t.Fatalf("thinking is %v, and nothing was said about it", got)
+				}
+				return
+			}
+			want, _ := c.want.(map[string]any)
+			have, _ := got.(map[string]any)
+			if len(have) != len(want) {
+				t.Fatalf("thinking is %v, want %v", got, c.want)
+			}
+			for k, v := range want {
+				if have[k] != v {
+					t.Fatalf("thinking is %v, want %v", got, c.want)
+				}
+			}
+			// budget_tokens is never sent: it is the wrong way to ask
+			// a model that thinks adaptively.
+			if _, ok := have["budget_tokens"]; ok {
+				t.Fatalf("budget_tokens went out: %v", got)
+			}
+		})
+	}
+}

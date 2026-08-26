@@ -281,16 +281,33 @@ it cannot: the system prompt goes as text blocks with an ephemeral
 `cache_control` on the last one and another on the last tool, so the
 stable prefix — tools, then prompt — is written once and read back on
 every turn after; tool results that ran in parallel go back as
-`tool_result` blocks in one user message; thinking is adaptive by
-saying nothing at all, which is what a Claude 4.6 or 5 wants and is
-why no `budget_tokens` is ever sent; `Effort` becomes
+`tool_result` blocks in one user message; an assistant turn's kept
+thinking blocks go back in front of its text and its tool calls, and
+stay behind when the request turns thinking off; thinking is adaptive
+by saying nothing at all, which is what a Claude 4.6 or 5 wants and is
+why no `budget_tokens` is ever sent, and `ThinkingDisplay` becomes
+`thinking.display`, which the API has a place for only on the adaptive
+config — so asking for one asks for the other; `Effort` becomes
 `output_config.effort`. The defaults are `claude-opus-5` and 64000
 tokens, because `max_tokens` is required and streaming is what makes
 a large one safe to ask for.
 
+The OpenAI side has a place for one hint, `Effort`, and sends
+`reasoning_effort` only when it was set. It used to send `"none"` for
+`Thinking: off` — verad's way of telling an endpoint that refuses
+function tools with reasoning on — and an OpenAI-compatible endpoint
+answers that with `400: Unsupported value: 'reasoning_effort' does not
+support 'none'` for a model that has no way to turn reasoning off. A
+hint that fails the request is worse than a hint that was not taken.
+`xhigh` and `max` become `high`, which is the strongest word that end
+has; an `Effort` this package does not recognise is passed through as
+the caller wrote it, so the endpoint that really does want `"none"`
+asks for it by name.
+
 Both are tested against `httptest` servers speaking their real
 streaming formats, and one conformance test drives the same scripted
-exchange — text, a tool call, a tool result, text — through both.
+exchange — text, a tool call, a tool result, text — through both,
+carrying each provider's own `Raw` back without reading it.
 
 ## Try it
 

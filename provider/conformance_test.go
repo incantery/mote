@@ -79,12 +79,14 @@ func exchange(t *testing.T, scene func(*testing.T) (Provider, *wire)) {
 	total := used
 
 	// The second round is the first one plus what the model asked for
-	// and what the tool said. Every provider has its own idea of how
-	// that goes on the wire; none of that is here.
-	req.Messages = append(req.Messages,
-		Assistant(first.text.String(), call),
-		Answer(call.ID, "nine rows"),
-	)
+	// and what the tool said — and whatever the provider asked to be
+	// given back, which the harness carries without reading. Every
+	// provider has its own idea of how that goes on the wire; none of
+	// that is here, and a provider with nothing to keep sent nothing
+	// and gets nil.
+	assistant := Assistant(first.text.String(), call)
+	assistant.Raw = first.raw
+	req.Messages = append(req.Messages, assistant, Answer(call.ID, "nine rows"))
 
 	var second collect
 	used, err = p.Stream(t.Context(), req, second.on)

@@ -33,7 +33,17 @@ const (
 //     disabled one. The zero value sends nothing, which is the right
 //     answer for a Claude 4.6 or 5: those think adaptively already,
 //     and a budget_tokens is the wrong way to ask a model that does.
+//     ThinkingDisplay becomes thinking.display, which the API only
+//     has a place for on the adaptive config — so asking for one
+//     asks for the other.
 //   - Effort becomes output_config.effort.
+//
+// It is also the reason Message.Raw exists. A turn that thought and
+// called a tool has to come back with its thinking blocks and their
+// signatures in front of the tool call, or the API refuses the
+// conversation. Stream hands them out as one KindRaw event at the end
+// of the turn; put that on the assistant Message and this reads it
+// back. Nothing else has to know what a signature is.
 type Anthropic struct {
 	// Model is used when a Request does not name one.
 	Model string
@@ -68,18 +78,22 @@ func (a *Anthropic) Stream(ctx context.Context, req Request, fn func(Event)) (Us
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(pick(req.Model, a.Model, DefaultAnthropicModel)),
 		MaxTokens: int64(pickN(req.MaxTokens, a.MaxTokens, DefaultAnthropicMaxTokens)),
-		Messages:  messages(req.Messages),
+		Messages:  messages(req.Messages, req.Thinking != ThinkingOff),
 		System:    system(req.System, req.CacheSystem),
 		Tools:     tools(req.Tools, req.CacheSystem),
 	}
-	switch req.Thinking {
-	case ThinkingAdaptive:
-		params.Thinking = anthropic.ThinkingConfigParamUnion{
-			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
-		}
-	case ThinkingOff:
+	switch {
+	case req.Thinking == ThinkingOff:
 		params.Thinking = anthropic.ThinkingConfigParamUnion{
 			OfDisabled: &anthropic.ThinkingConfigDisabledParam{},
+		}
+	case req.Thinking == ThinkingAdaptive || req.ThinkingDisplay != "":
+		// display lives on the adaptive config and nowhere else, so a
+		// caller who asked for one has asked for the other.
+		params.Thinking = anthropic.ThinkingConfigParamUnion{
+			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
+				Display: anthropic.ThinkingConfigAdaptiveDisplay(req.ThinkingDisplay),
+			},
 		}
 	}
 	if req.Effort != "" {
@@ -95,6 +109,12 @@ func (a *Anthropic) Stream(ctx context.Context, req Request, fn func(Event)) (Us
 	// its arguments as input_json_delta fragments, then a stop. It is
 	// whole at the stop and not before, which is when it is delivered.
 	open := map[int64]*Call{}
+	// A thinking block arrives the same way — thinking_delta for the
+	// words, signature_delta for the signature — and what is kept is
+	// the whole of it, in the order the blocks came, because that is
+	// the order the next request has to put them back in.
+	thinking := map[int64]*kept{}
+	var order []int64
 
 	for stream.Next() {
 		ev := stream.Current()
@@ -108,8 +128,17 @@ func (a *Anthropic) Stream(ctx context.Context, req Request, fn func(Event)) (Us
 			used.CacheWrite = int(m.Usage.CacheCreationInputTokens)
 
 		case "content_block_start":
-			if b := ev.ContentBlock; b.Type == "tool_use" {
+			switch b := ev.ContentBlock; b.Type {
+			case "tool_use":
 				open[ev.Index] = &Call{ID: b.ID, Name: b.Name}
+			case "thinking":
+				thinking[ev.Index] = &kept{Type: b.Type, Thinking: b.Thinking, Signature: b.Signature}
+				order = append(order, ev.Index)
+			case "redacted_thinking":
+				// Nothing to show — the words are the API's to keep —
+				// but the block still has to go back.
+				thinking[ev.Index] = &kept{Type: b.Type, Data: b.Data}
+				order = append(order, ev.Index)
 			}
 
 		case "content_block_delta":
@@ -117,7 +146,14 @@ func (a *Anthropic) Stream(ctx context.Context, req Request, fn func(Event)) (Us
 			case "text_delta":
 				fn(Delta(ev.Delta.Text))
 			case "thinking_delta":
+				if k := thinking[ev.Index]; k != nil {
+					k.Thinking += ev.Delta.Thinking
+				}
 				fn(Thought(ev.Delta.Thinking))
+			case "signature_delta":
+				if k := thinking[ev.Index]; k != nil {
+					k.Signature += ev.Delta.Signature
+				}
 			case "input_json_delta":
 				if c := open[ev.Index]; c != nil {
 					c.Arguments += ev.Delta.PartialJSON
@@ -163,7 +199,58 @@ func (a *Anthropic) Stream(ctx context.Context, req Request, fn func(Event)) (Us
 	if err := stream.Err(); err != nil {
 		return used, err
 	}
+	// Last, and only when there was something to keep: what this turn
+	// has to hand back on the next one.
+	if len(order) > 0 {
+		blocks := make([]kept, 0, len(order))
+		for _, i := range order {
+			blocks = append(blocks, *thinking[i])
+		}
+		if raw, err := json.Marshal(blocks); err == nil {
+			fn(Keeping(raw))
+		}
+	}
 	return used, nil
+}
+
+// kept is a thinking block as it goes into Message.Raw and comes back
+// out. It is the wire's own shape, so what a harness writes to a
+// session file and reads back a week later is what the API said.
+//
+// A harness never reads this. It is here rather than in the SDK's
+// param union because a param type is written to be marshalled, and
+// this has to survive the round trip in both directions.
+type kept struct {
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
+}
+
+// thought is the blocks a previous assistant turn kept, as content
+// blocks for the next request. They go in front of everything else in
+// the message, which is the order they came in and the order the API
+// wants them.
+func thought(raw json.RawMessage) []anthropic.ContentBlockParamUnion {
+	if len(raw) == 0 {
+		return nil
+	}
+	var blocks []kept
+	if json.Unmarshal(raw, &blocks) != nil {
+		// Somebody else's Raw, or a file that was edited. The turn is
+		// still a turn; it is the thinking that is lost.
+		return nil
+	}
+	out := make([]anthropic.ContentBlockParamUnion, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Type {
+		case "thinking":
+			out = append(out, anthropic.NewThinkingBlock(b.Signature, b.Thinking))
+		case "redacted_thinking":
+			out = append(out, anthropic.NewRedactedThinkingBlock(b.Data))
+		}
+	}
+	return out
 }
 
 // refusal is the sentence a refused turn puts on the error event. The
@@ -254,17 +341,25 @@ func inputSchema(raw json.RawMessage) anthropic.ToolInputSchemaParam {
 	return schema
 }
 
-// messages is the conversation in the Messages API's shape. The one
-// thing it does that a straight translation would not: tool results
+// messages is the conversation in the Messages API's shape. Two
+// things it does that a straight translation would not: tool results
 // that ran together go back as tool_result blocks in a single user
 // message, because that is what the API wants for calls made in
-// parallel and it is not what a list of messages looks like.
-func messages(in []Message) []anthropic.MessageParam {
+// parallel and it is not what a list of messages looks like; and an
+// assistant turn's kept thinking blocks go back in front of its text
+// and its tool calls, which is where they were and where they have to
+// be.
+func messages(in []Message, thinking bool) []anthropic.MessageParam {
 	out := make([]anthropic.MessageParam, 0, len(in))
 	for i := 0; i < len(in); {
 		switch m := in[i]; m.Role {
 		case RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion
+			if thinking {
+				// First, and only while thinking is on: a request
+				// that turned it off must not carry them.
+				blocks = append(blocks, thought(m.Raw)...)
+			}
 			if strings.TrimSpace(m.Text) != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Text))
 			}
