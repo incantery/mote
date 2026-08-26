@@ -85,3 +85,5 @@ reports, using the chat — and classified as they came up:
 | 2026-08-26 | my M8 ask to omit reasoning_effort broke the real endpoint, which needs `none` with function tools — the "gpt-5" 400 was the placeholder, not the model | vera/mote | now | fixed: verad asks for `none` by name; provider passes unknown words through |
 | 2026-08-26 | `Registry.Own` doc says owned tools come first; it appends | mote tool | later | insert in front, or fix the doc |
 | 2026-08-26 | `mcp.Connect` joins failures; a harness cannot say which server failed without parsing | mote mcp | later | per-server errors |
+| 2026-08-26 | MCP live: filesystem server over stdio declared in ~/vera/profiles/supervisor/mcp.toml, 14 tools in the registry, `vera mcp` lists them, a call went policy→ask (MCP default)→`vera say` said no→Vera reported the refusal | vera/mote mcp | later | verified by use |
+| 2026-08-26 | after an MCP ask answered no, Vera said "the files MCP server denied the request" — it was the person, not the server | vera prompt | later | the tool result should say who said no |
