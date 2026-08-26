@@ -81,3 +81,7 @@ reports, using the chat — and classified as they came up:
 | 2026-08-26 | my M8 ask to omit reasoning_effort broke the real endpoint, which needs `none` with function tools — the "gpt-5" 400 was the placeholder, not the model | vera/mote | now | fixed: verad asks for `none` by name; provider passes unknown words through |
 | 2026-08-26 | `Registry.Own` doc says owned tools come first; it appends | mote tool | later | insert in front, or fix the doc |
 | 2026-08-26 | `mcp.Connect` joins failures; a harness cannot say which server failed without parsing | mote mcp | later | per-server errors |
+| 2026-08-26 | verad adopted M8 (cc275c15): Handle/Meta/`when` stop rule/Own, mcp.toml + GET /mcp + `vera mcp`, thinking round-trip through History | vera mind | later | delivered |
+| 2026-08-26 | my M8 ask to omit reasoning_effort broke the real endpoint, which needs `none` with function tools — the "gpt-5" 400 was the placeholder, not the model | vera/mote | now | fixed: verad asks for `none` by name; provider passes unknown words through |
+| 2026-08-26 | `Registry.Own` doc says owned tools come first; it appends | mote tool | later | insert in front, or fix the doc |
+| 2026-08-26 | `mcp.Connect` joins failures; a harness cannot say which server failed without parsing | mote mcp | later | per-server errors |
