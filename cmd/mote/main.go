@@ -51,9 +51,12 @@ func usage(w *os.File) {
 
 usage:
   mote demo [-c <id>] [-dir <path>] [-light] [-style <name>]
-        the terminal, over a scripted agent. -c reopens a conversation;
-        -light and -style say what colour the terminal is, which is
-        otherwise asked of the terminal without waiting for a reply.
+        the terminal, over a scripted agent — and, for a line with
+        "policy" in it, over the real built-in tools under the
+        supervisor profile, with the ask when it says ask. -c reopens
+        a conversation; -light and -style say what colour the terminal
+        is, which is otherwise asked of the terminal without waiting
+        for a reply.
   mote sessions [-dir <path>]
         the conversations on disk, most recently said to first.
   mote version
