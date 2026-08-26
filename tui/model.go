@@ -961,7 +961,10 @@ func (m *Model) transcript() string {
 		b.WriteString(m.md.render(m.partial, w, true))
 		b.WriteString("\n\n")
 	}
+	// Nothing is happening while a question is open: the card is the
+	// thing to look at, and a spinner under it says the opposite.
 	switch {
+	case m.asking():
 	case m.statusText != "":
 		b.WriteString(m.st.status.Render(spinnerFrame(m.frame) + " " + m.statusText))
 	case m.inflight && m.partial == "":

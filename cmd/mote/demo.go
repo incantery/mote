@@ -3,13 +3,18 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/incantery/mote/agent"
+	"github.com/incantery/mote/profile"
+	"github.com/incantery/mote/profiles"
 	"github.com/incantery/mote/session"
+	"github.com/incantery/mote/tool/builtin"
 	"github.com/incantery/mote/tui"
 )
 
@@ -54,6 +59,25 @@ func demo(args []string) error {
 	defer close(stop)
 	go f.run(notices, stop, 6*time.Second)
 
+	// The real half of the demo: this checkout, the supervisor
+	// profile, and the built-in tools under its policy. A scratch
+	// directory stands in for a home, so a write the policy allows
+	// lands somewhere that is deleted when the demo quits.
+	repo := findRepo()
+	scratch, err := os.MkdirTemp("", "mote-demo-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(scratch)
+	prof, from, err := supervisor(repo)
+	if err != nil {
+		return err
+	}
+	agentUnder, err := newRound(&agent.Fake{}, repo, scratch, builtin.Registry(repo), prof)
+	if err != nil {
+		return err
+	}
+
 	pal := tui.DefaultPalette()
 	switch {
 	case *style != "":
@@ -62,13 +86,13 @@ func demo(args []string) error {
 		pal.Markdown = "light"
 	}
 
-	return tui.Run(&agent.Fake{}, tui.Options{
+	return tui.Run(agentUnder, tui.Options{
 		Name:           "mote",
 		Model:          "fake-1",
 		Conversation:   id,
 		Session:        sess,
 		Palette:        &pal,
-		Greeting:       greeting(sess),
+		Greeting:       greeting(sess, repo, from, scratch),
 		Side:           f.snapshot,
 		SideTitle:      "fleet",
 		StatusRight:    f.summary,
@@ -80,6 +104,7 @@ func demo(args []string) error {
 			{Name: "start", Help: "/start <brief> — put another task on the rail"},
 			{Name: "new", Help: "a fresh conversation, in its own file"},
 			{Name: "sessions", Help: "the conversations on disk"},
+			{Name: "policy", Help: "the profile's rules, as the file says them"},
 			{Name: "quit", Help: "leave"},
 		},
 		Handle: func(name, args string) tea.Cmd {
@@ -133,6 +158,8 @@ func demo(args []string) error {
 					return tui.Note("no conversations in %s", sdir)
 				}
 				return tui.Note("%s", strings.TrimRight(b.String(), "\n"))
+			case "policy":
+				return tui.Show(policyText(prof, from))
 			case "quit":
 				return tea.Quit
 			}
@@ -184,10 +211,51 @@ func (o *openFiles) closeAll() {
 	}
 }
 
+// supervisor loads the worked profile: the one in the checkout when
+// there is a checkout to read it from, so that editing policy.toml
+// changes what the demo does, and the compiled-in copy otherwise.
+func supervisor(repo string) (*profile.Profile, string, error) {
+	dir := filepath.Join(repo, "profiles", "supervisor")
+	if p, err := profile.Load(dir); err == nil {
+		return p, dir, nil
+	}
+	p, err := profiles.Supervisor()
+	return p, "the copy compiled into this binary", err
+}
+
+// policyText is the profile, as a person would read it: the file, and
+// then what it decides.
+func policyText(p *profile.Profile, from string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## %s — `%s`\n\n", p.Name, from)
+	fmt.Fprintf(&b, "Model hint `%s`. Tools: `%s`.\n\n",
+		p.Model, strings.Join(p.Tools, "`, `"))
+	fmt.Fprintf(&b, "Default **%s**. Roots:\n\n", p.Policy.Default)
+	for _, r := range p.Policy.Roots {
+		b.WriteString("- `" + r + "`\n")
+	}
+	b.WriteString("\n| tools | paths / commands | then | why |\n| --- | --- | --- | --- |\n")
+	for _, r := range p.Policy.Rules {
+		what := strings.Join(append(append([]string(nil), r.Paths...), r.Commands...), "`, `")
+		fmt.Fprintf(&b, "| `%s` | `%s` | **%s** | %s |\n",
+			strings.Join(r.Tools, "`, `"), what, r.Then, r.Reason)
+	}
+	b.WriteString("\nPer tool, when no rule matched:\n\n")
+	for _, name := range p.Tools {
+		if d, ok := p.Policy.Tools[name]; ok {
+			fmt.Fprintf(&b, "- `%s` — **%s**\n", name, d)
+		}
+	}
+	b.WriteString("\nSay something with **policy** in it to watch it decide eight real calls.\n")
+	return b.String()
+}
+
 // greeting is what the demo says once, at the top. It names the file
 // the conversation is being written to, because a person who quits
-// and comes back needs to know it was kept and where.
-func greeting(sess *session.Session) string {
+// and comes back needs to know it was kept and where — and it names
+// the profile, the checkout and the scratch home, because what the
+// policy is about is where things are.
+func greeting(sess *session.Session, repo, from, scratch string) string {
 	resumed := ""
 	if n := len(sess.Turns()); n > 0 {
 		turns := "turns"
@@ -198,6 +266,14 @@ func greeting(sess *session.Session) string {
 			sess.ID(), n, turns, sess.Path())
 	}
 	return "# mote demo\n\n" + resumed +
+		"Say a line with **policy** in it and the demo runs eight real " +
+		"tool calls — `list`, `read`, `search`, `run`, and four writes — " +
+		"against `" + repo + "`, decided by the supervisor profile in `" +
+		from + "`. One is denied because the checkout is a project root; " +
+		"one stops and **asks**, with `y` / `n` / `a` on the card. This " +
+		"run's `~` is `" + scratch + "`, so a write the policy allows is " +
+		"real and lands nowhere real; it goes when the demo does. " +
+		"`/policy` prints the rules.\n\n" +
 		"This is the terminal, over a scripted agent. Say anything and it " +
 		"answers; the turns cycle through **markdown**, a **tool round**, a " +
 		"**long command streaming its output**, and an **error** — or say a " +
@@ -210,13 +286,10 @@ func greeting(sess *session.Session) string {
 		"than repeating. The right of the status line is the fleet in a " +
 		"phrase, refreshed with the rail. `/new` moves the conversation " +
 		"and `/sessions` knows it did.\n\n" +
-		"The terminal was asked what colour it is, and nobody waited for " +
-		"the answer: this frame was drawn with the safe guess, and if " +
-		"your terminal answers, the reply arrives as a message and the " +
-		"markdown is drawn again in the style it chose. A terminal that " +
-		"never answers costs nothing. `-style` and `-light` say it " +
-		"outright and neither the terminal nor the environment overrules " +
-		"them. The cursor in the box is your terminal's own.\n\n" +
+		"The terminal was asked what colour it is and nobody waited for " +
+		"the answer: this frame used the safe guess, and a reply, if one " +
+		"comes, redraws it. `-style` and `-light` say it outright. The " +
+		"cursor in the box is your terminal's own.\n\n" +
 		"Kept in `" + sess.Path() + "` — `mote sessions` lists them, " +
 		"`mote demo -c " + sess.ID() + "` reopens this one.\n"
 }

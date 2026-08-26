@@ -317,3 +317,17 @@ func TestAskHints(t *testing.T) {
 		t.Fatalf("hints %q", got)
 	}
 }
+
+// Nothing spins under an open question: the card is the thing to
+// look at, and a spinner says the opposite of "waiting for you".
+func TestNoSpinnerUnderAnAsk(t *testing.T) {
+	m := asked(t, &answers{})
+	m.inflight = true
+	if got := ansi.Strip(m.transcript()); strings.Contains(got, "thinking") {
+		t.Fatalf("transcript ends with a spinner:\n%s", got)
+	}
+	press(m, "y")
+	if got := ansi.Strip(m.transcript()); !strings.Contains(got, "thinking") {
+		t.Fatalf("and it comes back once the question is answered:\n%s", got)
+	}
+}

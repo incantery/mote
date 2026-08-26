@@ -29,7 +29,7 @@ func screen(t *testing.T, w, h int) (*tui.Model, *fleet) {
 		Name: "mote", Model: "fake-1", Conversation: "demo-1",
 		Session:     sess,
 		Palette:     &pal,
-		Greeting:    greeting(sess),
+		Greeting:    greeting(sess, "/src/mote", "/src/mote/profiles/supervisor", "/tmp/mote-demo-x"),
 		Side:        f.snapshot,
 		SideTitle:   "fleet",
 		StatusRight: f.summary,
