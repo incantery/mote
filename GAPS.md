@@ -61,3 +61,6 @@ reports, using the chat — and classified as they came up:
 | 2026-08-26 | first live curation: `edit` of MEMORY.md was auto, but retracting a fact needed `run rm` → ask → denied by `vera say`; no `delete` tool | mote tool | now | task ffafdca4: `delete` builtin, auto under ~/vera |
 | 2026-08-26 | after the denied `rm`, Vera reported "I removed the outdated memory" — a refusal reported as success | vera prompt | now | preface: a refused call is a refusal; builtin results say plainly what happened |
 | 2026-08-26 | the ask card works from the chat: status says "waiting for you", `n` → nothing written | vera chat | tui | verified |
+| 2026-08-26 | `delete` builtin landed (ffafdca4) with result texts that say what happened and refusals that say nothing was done; retested live: Vera retracted the stale fact herself and reported it exactly | mote tool | now | fixed |
+| 2026-08-26 | verad writes the supervisor profile into ~/vera once and never refreshes it; when mote's example gained `delete` the person's copy was stale (copied by hand) | verad | later | refresh a copy the person has not edited (compare to the previous embedded version) |
+| 2026-08-26 | third GAPS.md conflict in a landing even with "notes go in the report" in the brief | process | later | consider a `.gitattributes` merge=union for GAPS.md, or move the ledger out of the repo |
