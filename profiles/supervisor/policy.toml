@@ -23,20 +23,23 @@ list = "allow"
 search = "allow"
 write = "ask"
 edit = "ask"
+delete = "ask"
 run = "ask"
 
 # A project is a task's, not hers — and .git is nobody's to edit by
 # hand. This is first so that neither of the rules below can reach
 # into one.
 [[rules]]
-tools = ["write", "edit"]
+tools = ["write", "edit", "delete"]
 paths = ["${root}/**", "**/.git/**"]
 then = "deny"
 reason = "start a task for that"
 
-# Her own home. Notes, drafts, whatever she keeps.
+# Her own home. Notes, drafts, whatever she keeps — and taking one
+# back, which is deleting a file and should be no more of an event
+# than writing it was.
 [[rules]]
-tools = ["write", "edit"]
+tools = ["write", "edit", "delete"]
 paths = ["~/vera/**"]
 then = "allow"
 reason = "her own home"
