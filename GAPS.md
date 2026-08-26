@@ -64,3 +64,9 @@ reports, using the chat — and classified as they came up:
 | 2026-08-26 | `delete` builtin landed (ffafdca4) with result texts that say what happened and refusals that say nothing was done; retested live: Vera retracted the stale fact herself and reported it exactly | mote tool | now | fixed |
 | 2026-08-26 | verad writes the supervisor profile into ~/vera once and never refreshes it; when mote's example gained `delete` the person's copy was stale (copied by hand) | verad | later | refresh a copy the person has not edited (compare to the previous embedded version) |
 | 2026-08-26 | third GAPS.md conflict in a landing even with "notes go in the report" in the brief | process | later | consider a `.gitattributes` merge=union for GAPS.md, or move the ledger out of the repo |
+| 2026-08-26 | fleet and delegate are registry tools in verad (900aa161): one path policy→run→journal for every tool; definitions byte-identical | vera mind | later | delivered |
+| 2026-08-26 | `tool.Result` has only Text — a task id, session id or cost has nowhere to go; verad side-channels a `round` through context | mote tool | later | `Result.Meta` (map or typed fields) |
+| 2026-08-26 | no way for a tool to speak in the harness's voice before a result ("Opening a room…") — the io.Writer is the tool's bytes | mote tool | later | a status callback on the run handle |
+| 2026-08-26 | no per-call harness context (which device asked, "the repo in front of them") | mote tool | later | `Run` takes a harness handle / context values documented |
+| 2026-08-26 | policy rules cannot key on an argument (fleet `action: stop` should ask); "always" scope is the command's first word | mote tool | later | argument selectors in rules; explicit scope from the tool |
+| 2026-08-26 | `Registry.Only` drops harness-owned tools the profile did not name; no Remove/Replace on a registry | mote tool | later | harness-owned tools the profile cannot deselect; in-place edits |
