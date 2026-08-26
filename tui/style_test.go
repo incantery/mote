@@ -77,6 +77,14 @@ func TestNoTerminalQueries(t *testing.T) {
 	t.Setenv("COLORFGBG", "")
 
 	r, written := deaf(t)
+	// Everything that draws through lipgloss's package-level styles —
+	// bubbles' textarea is full of AdaptiveColor — asks the default
+	// renderer, so for the length of this test the default renderer is
+	// the one that never answers.
+	was := lipgloss.DefaultRenderer()
+	lipgloss.SetDefaultRenderer(r)
+	t.Cleanup(func() { lipgloss.SetDefaultRenderer(was) })
+
 	pal := DefaultPalette() // Markdown: "auto", the way an application gets it
 	m := New(&agent.Fake{Instant: true}, Options{
 		Name: "mote", Model: "fake-1", Conversation: "demo-1",

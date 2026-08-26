@@ -96,15 +96,13 @@ func New(a agent.Agent, opts Options) *Model {
 	st := newStyles(opts.Renderer, *opts.Palette)
 	profile := opts.Renderer.ColorProfile()
 	style := resolveStyle(opts.Palette.Markdown, profile)
-	// Glamour is not the only one who asks: every lipgloss
-	// AdaptiveColor asks too, the first time it is drawn, and bubbles'
-	// textarea is made of them. Answering here — once, from the same
-	// decision the markdown style came from — is what keeps the
-	// question off the wire for good; lipgloss remembers an answer it
-	// was given and never asks again.
-	dark := darkBackground(style)
-	opts.Renderer.SetHasDarkBackground(dark)
-	lipgloss.SetHasDarkBackground(dark)
+	// Glamour is not the only one who could ask: a lipgloss
+	// AdaptiveColor asks the renderer what colour the terminal is, the
+	// first time one is drawn. Told the answer here — from the same
+	// decision the markdown style came from — it never asks. When the
+	// application supplied no renderer this is lipgloss's own, which
+	// is the one everything else drawing through lipgloss uses.
+	opts.Renderer.SetHasDarkBackground(darkBackground(style))
 	m := &Model{
 		agent:        a,
 		opts:         opts,
