@@ -256,3 +256,63 @@ func TestARefusalSaysNothingWasDone(t *testing.T) {
 		t.Error("a refusal must look like a failure to a terminal that only knows that prefix")
 	}
 }
+
+// A rule can key on an argument, which is how one tool with several
+// verbs gets several answers. `fleet` reporting on a task and `fleet`
+// stopping one are not the same permission.
+func TestRuleOnAnArgument(t *testing.T) {
+	p := &Policy{
+		Default: Allow,
+		Rules: []Rule{{
+			Tools:  []string{"fleet"},
+			When:   map[string]string{"action": "stop"},
+			Then:   Ask,
+			Reason: "stopping a task abandons the work in it",
+		}},
+	}
+	ask := p.Decide(Call{Tool: "fleet", Args: json.RawMessage(`{"action":"stop","task":"a1"}`)})
+	if ask.Decision != Ask || ask.Reason != "stopping a task abandons the work in it" {
+		t.Fatalf("stop is %v (%s)", ask.Decision, ask.Reason)
+	}
+	for _, args := range []string{
+		`{"action":"start","repo":"mote"}`, // a different verb
+		`{"task":"a1"}`,                    // no verb at all
+		`{"action":3}`,                     // not a string
+		`{"action":{"is":"stop"}}`,         // not a scalar
+		`[1,2,3]`,                          // not an object
+		`{{{`,                              // not JSON
+		``,                                 // nothing
+	} {
+		if got := p.Decide(Call{Tool: "fleet", Args: json.RawMessage(args)}); got.Decision != Allow {
+			t.Fatalf("%s is %v, and only `action: stop` should ask", args, got.Decision)
+		}
+	}
+}
+
+// Every pair must match, and the parts of a rule are ands: a rule
+// about a tool and an argument is about both.
+func TestRuleOnSeveralArguments(t *testing.T) {
+	p := &Policy{
+		Default: Allow,
+		Rules: []Rule{{
+			Tools: []string{"fleet"},
+			When:  map[string]string{"action": "stop", "force": "yes"},
+			Then:  Deny,
+		}},
+	}
+	if got := p.Decide(Call{Tool: "fleet", Args: json.RawMessage(`{"action":"stop","force":"yes"}`)}); got.Decision != Deny {
+		t.Fatalf("both matched and it is %v", got.Decision)
+	}
+	if got := p.Decide(Call{Tool: "fleet", Args: json.RawMessage(`{"action":"stop"}`)}); got.Decision != Allow {
+		t.Fatalf("one of two matched and it is %v", got.Decision)
+	}
+	if got := p.Decide(Call{Tool: "run", Args: json.RawMessage(`{"action":"stop","force":"yes"}`)}); got.Decision != Allow {
+		t.Fatalf("another tool's arguments matched: %v", got.Decision)
+	}
+	// A rule with no reason says what it matched on, in a stable order.
+	p.Rules[0].Tools = nil
+	got := p.Decide(Call{Tool: "fleet", Args: json.RawMessage(`{"action":"stop","force":"yes"}`)})
+	if got.Reason != "fleet action=stop force=yes is denied" {
+		t.Fatalf("reason %q", got.Reason)
+	}
+}

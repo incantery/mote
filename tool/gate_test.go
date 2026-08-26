@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -171,5 +172,43 @@ func answer(t *testing.T, g *Gate, id, choice string) {
 	time.Sleep(5 * time.Millisecond)
 	if err := g.Answer(context.Background(), id, choice); err != nil {
 		t.Error(err)
+	}
+}
+
+// A tool that knows which of its calls are the same question says so,
+// and an "always" covers that rather than the first word of a command
+// line it may not have.
+type verbed struct{ stub }
+
+func (verbed) Scope(args json.RawMessage) string {
+	var v struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(args, &v)
+	return v.Action
+}
+
+func TestAlwaysCoversTheScopeTheToolStated(t *testing.T) {
+	g := &Gate{Policy: &Policy{Default: Ask}}
+	tl := verbed{stub{name: "fleet"}}
+
+	start := NewCall("c1", tl, json.RawMessage(`{"action":"start","repo":"mote"}`))
+	if got := g.Grant(start).String(); got != "fleet start" {
+		t.Fatalf("an always would cover %q", got)
+	}
+	go answer(t, g, start.ID, Always)
+	if ok, err := g.Wait(context.Background(), start); err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+
+	// Another start, and it is not asked about again.
+	again := NewCall("c2", tl, json.RawMessage(`{"action":"start","repo":"vera"}`))
+	if v := g.Decide(again); v.Decision != Allow || v.Rule != "always" {
+		t.Fatalf("a second start is %v (%s)", v.Decision, v.Rule)
+	}
+	// A stop is a different question, and is still asked.
+	stop := NewCall("c3", tl, json.RawMessage(`{"action":"stop","task":"a1"}`))
+	if v := g.Decide(stop); v.Decision != Ask {
+		t.Fatalf("stop is %v — an always about start does not cover it", v.Decision)
 	}
 }

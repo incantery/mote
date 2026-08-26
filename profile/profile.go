@@ -209,8 +209,14 @@ func check(p *tool.Policy) error {
 		if err := decision(r.Then, at+".then"); err != nil {
 			return err
 		}
-		if len(r.Tools) == 0 && len(r.Paths) == 0 && len(r.Commands) == 0 && i != len(p.Rules)-1 {
+		if len(r.Tools) == 0 && len(r.Paths) == 0 && len(r.Commands) == 0 &&
+			len(r.When) == 0 && i != len(p.Rules)-1 {
 			return fmt.Errorf("%s matches everything but is not the last rule", at)
+		}
+		for name := range r.When {
+			if strings.TrimSpace(name) == "" {
+				return fmt.Errorf("%s.when has an argument with no name", at)
+			}
 		}
 		for _, pat := range r.Paths {
 			if strings.Contains(pat, "${root}") && len(p.Roots) == 0 {

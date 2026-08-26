@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -38,6 +39,10 @@ type Call struct {
 	Paths []string
 	// Command is the command line, from Commander.
 	Command string
+	// Scope is how far an "always" about this call reaches, from
+	// Scoper. Empty means the tool has no opinion and the Gate works
+	// it out — see grantFor.
+	Scope string
 }
 
 // NewCall reads a call out of a tool and its arguments.
@@ -48,6 +53,7 @@ func NewCall(id string, t Tool, args json.RawMessage) Call {
 		Args:    args,
 		Paths:   Paths(t, args),
 		Command: Command(t, args),
+		Scope:   Scope(t, args),
 	}
 }
 
@@ -99,9 +105,9 @@ func Declined() string { return Refused("you were asked, and said no") }
 // Rule is one line of a profile's policy.
 //
 // A rule matches when every part of it that is set matches: the tool
-// by name, the paths by glob, the command by prefix. A part left
-// empty is not a wildcard that widens the rule — it is a question the
-// rule does not ask.
+// by name, the paths by glob, the command by prefix, the arguments by
+// equality. A part left empty is not a wildcard that widens the rule
+// — it is a question the rule does not ask.
 //
 // Paths are matched with doublestar, against the cleaned absolute
 // path, so `~/vera/**` is everything under it and `**/.git/**` is
@@ -117,8 +123,24 @@ type Rule struct {
 	Tools    []string `toml:"tools"`
 	Paths    []string `toml:"paths"`
 	Commands []string `toml:"commands"`
-	Then     Decision `toml:"then"`
-	Reason   string   `toml:"reason"`
+	// When is arguments this rule is about, by name and value:
+	//
+	//	when = { action = "stop" }
+	//
+	// Every pair must match for the rule to. The match is equality on
+	// a top-level string argument and nothing cleverer: an argument
+	// that is a number, an object or absent does not match, because a
+	// rule that guesses what `3` and `"3"` have in common is a rule
+	// nobody can predict.
+	//
+	// It is here because the difference between two calls to one tool
+	// is often the whole of the question — `fleet` reporting on a
+	// task and `fleet` stopping one are not the same permission, and
+	// before this a harness had to smuggle the verb out through
+	// Commander to write a rule about it.
+	When   map[string]string `toml:"when"`
+	Then   Decision          `toml:"then"`
+	Reason string            `toml:"reason"`
 }
 
 // Policy is a profile's rules. The zero Policy denies everything,
@@ -150,8 +172,9 @@ func (p *Policy) Decide(c Call) Verdict {
 	c.Paths = p.Clean(c.Paths)
 	c.Command = strings.TrimSpace(c.Command)
 
+	args := stringArgs(c.Args, p.Rules)
 	for i, r := range p.Rules {
-		if path, ok := p.matches(r, c); ok {
+		if path, ok := p.matches(r, c, args); ok {
 			return Verdict{
 				Decision: valid(r.Then),
 				Reason:   p.reason(r, c, path),
@@ -195,15 +218,33 @@ func (p *Policy) reason(r Rule, c Call, path string) string {
 	case path != "":
 		return fmt.Sprintf("%s %ss %s", c.Tool, valid(r.Then), path)
 	case len(r.Commands) > 0:
-		return fmt.Sprintf("%q is %sed", c.Command, valid(r.Then))
+		return fmt.Sprintf("%q is %s", c.Command, past(r.Then))
+	case len(r.When) > 0:
+		return fmt.Sprintf("%s %s is %s", c.Tool, when(r.When), past(r.Then))
 	}
-	return fmt.Sprintf("%s is %sed", c.Tool, valid(r.Then))
+	return fmt.Sprintf("%s is %s", c.Tool, past(r.Then))
+}
+
+// past is a decision as a thing that happened to this call.
+func past(d Decision) string {
+	switch valid(d) {
+	case Allow:
+		return "allowed"
+	case Ask:
+		return "asked about"
+	}
+	return "denied"
 }
 
 // matches says whether a rule covers a call, and which path decided.
-func (p *Policy) matches(r Rule, c Call) (string, bool) {
+func (p *Policy) matches(r Rule, c Call, args map[string]string) (string, bool) {
 	if len(r.Tools) > 0 && !contains(r.Tools, c.Tool) {
 		return "", false
+	}
+	for name, want := range r.When {
+		if got, ok := args[name]; !ok || got != want {
+			return "", false
+		}
 	}
 	path := ""
 	if len(r.Paths) > 0 {
@@ -244,6 +285,49 @@ func (p *Policy) matchPaths(r Rule, paths []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// when is a rule's argument test as a person would read it back:
+// `action=stop`, and in a stable order so two runs say it the same.
+func when(m map[string]string) string {
+	pairs := make([]string, 0, len(m))
+	for k, v := range m {
+		pairs = append(pairs, k+"="+v)
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, " ")
+}
+
+// stringArgs is a call's top-level string arguments, read once for
+// all the rules and only when some rule asks about one. A tool's
+// arguments are whatever the model wrote: unreadable JSON, or JSON
+// that is not an object, has no arguments to match, which is the safe
+// direction — a rule about an argument it cannot see does not fire,
+// and every rule that would have allowed on one is a rule that now
+// falls through to something stricter.
+func stringArgs(args json.RawMessage, rules []Rule) map[string]string {
+	asked := false
+	for _, r := range rules {
+		if len(r.When) > 0 {
+			asked = true
+			break
+		}
+	}
+	if !asked || len(args) == 0 {
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(args, &raw) != nil {
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			out[k] = s
+		}
+	}
+	return out
 }
 
 func matchAny(globs []string, path string) bool {

@@ -49,7 +49,8 @@ type ask struct {
 // answer reaches.
 //
 // The reach is the harness's decision, and this is the one mote
-// makes: for a call about files, the directory the file was in and
+// makes: what the tool said its Scope was, if it said anything; else,
+// for a call about files, the directory the file was in and
 // everything under it; for a command, the program that was run,
 // whatever its arguments; for anything else, the tool by itself. It
 // is deliberately narrower than "this tool, forever" and wider than
@@ -107,7 +108,7 @@ func (g *Gate) Grant(c Call) Grant {
 	if p == nil {
 		p = &Policy{}
 	}
-	return grantFor(Call{Tool: c.Tool, Paths: p.Clean(c.Paths), Command: c.Command})
+	return grantFor(Call{Tool: c.Tool, Paths: p.Clean(c.Paths), Command: c.Command, Scope: c.Scope})
 }
 
 // Wait blocks until the call is answered, and reports whether it may
@@ -195,7 +196,7 @@ func (g *Gate) remember(choice string, c Call) {
 	if p == nil {
 		p = &Policy{}
 	}
-	grant := grantFor(Call{Tool: c.Tool, Paths: p.Clean(c.Paths), Command: c.Command})
+	grant := grantFor(Call{Tool: c.Tool, Paths: p.Clean(c.Paths), Command: c.Command, Scope: c.Scope})
 	for _, have := range g.grants {
 		if have == grant {
 			return
@@ -212,7 +213,7 @@ func (g *Gate) Grants() []Grant {
 }
 
 func grantFor(c Call) Grant {
-	if word := firstWord(c.Command); word != "" {
+	if word := scopeOf(c); word != "" {
 		return Grant{Tool: c.Tool, Word: word}
 	}
 	if len(c.Paths) > 0 {
@@ -221,13 +222,23 @@ func grantFor(c Call) Grant {
 	return Grant{Tool: c.Tool}
 }
 
+// scopeOf is what the tool said, and the program it ran if it said
+// nothing. A tool that knows which of its calls are the same question
+// is a better judge of that than the first word of a command line.
+func scopeOf(c Call) string {
+	if s := strings.TrimSpace(c.Scope); s != "" {
+		return s
+	}
+	return firstWord(c.Command)
+}
+
 func (g Grant) covers(c Call) bool {
 	if g.Tool != c.Tool {
 		return false
 	}
 	switch {
 	case g.Word != "":
-		return firstWord(c.Command) == g.Word
+		return scopeOf(c) == g.Word
 	case g.Dir != "":
 		if len(c.Paths) == 0 {
 			return false
