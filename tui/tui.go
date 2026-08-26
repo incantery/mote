@@ -46,8 +46,18 @@ type Options struct {
 	// SideMinWidth is the window width below which the rail hides
 	// however it was toggled. Default 100.
 	SideMinWidth int
-	// SideRefresh is how often Side is called. Default 2s.
+	// SideRefresh is how often Side and StatusRight are called.
+	// Default 2s.
 	SideRefresh time.Duration
+
+	// StatusRight is one line's worth of the application's own text,
+	// on the right of the status line: what the person is looking at,
+	// how many runs are in flight — whatever is true all the time
+	// rather than worth a notice. It is called on the same timer as
+	// Side and under the same rule: on the UI goroutine, so read a
+	// cached value and get out. The terminal's key hints go before it
+	// when there is room and are dropped when there is not.
+	StatusRight func() string
 
 	// Commands are offered as completion when the person types "/".
 	Commands []Command

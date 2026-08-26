@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -308,16 +309,44 @@ func TestApplicationMessages(t *testing.T) {
 	}
 }
 
-// Options.Side is polled, and what it returns is what the rail shows.
-func TestSidePolling(t *testing.T) {
-	n := 0
-	m := plain(t, 120, 30, Options{Name: "mote", Side: func() []SideItem {
-		n++
-		return []SideItem{{ID: "x", Title: "poll " + strings.Repeat("!", n), State: Working}}
-	}})
-	step(m, sideTick{})
+// Options.Side and Options.StatusRight are polled on the same tick,
+// and what they return is what the screen shows.
+func TestPolling(t *testing.T) {
+	n, focus := 0, 0
+	m := plain(t, 120, 30, Options{
+		Name: "mote",
+		Side: func() []SideItem {
+			n++
+			return []SideItem{{ID: "x", Title: "poll " + strings.Repeat("!", n), State: Working}}
+		},
+		StatusRight: func() string {
+			focus++
+			return fmt.Sprintf("Ghostty · window %d", focus)
+		},
+	})
+	if !strings.Contains(m.statusLine(), "window 1") {
+		t.Fatalf("the status line was not asked at all: %q", m.statusLine())
+	}
+	step(m, pollTick{})
 	if !strings.Contains(m.View(), "poll !!") {
 		t.Fatalf("the rail did not repoll; calls=%d", n)
+	}
+	if !strings.Contains(m.statusLine(), "window 2") {
+		t.Fatalf("the status line did not follow: %q", m.statusLine())
+	}
+	// Both of them are on the right, the hints in front of the
+	// application's line, and the whole thing still fits.
+	line := m.statusLine()
+	if strings.Index(line, "/help") > strings.Index(line, "Ghostty") {
+		t.Errorf("the hints should come before the application's line: %q", line)
+	}
+	if w := lipglossWidth(line); w > 120 {
+		t.Errorf("the status line is %d wide, want at most 120: %q", w, line)
+	}
+	// No room for both: the hints are the ones that go.
+	step(m, tea.WindowSizeMsg{Width: 55, Height: 24})
+	if line := m.statusLine(); !strings.Contains(line, "Ghostty") || strings.Contains(line, "/help") {
+		t.Errorf("at 55 columns the hints should have gone, not the line: %q", line)
 	}
 }
 

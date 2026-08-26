@@ -67,8 +67,9 @@ type Model struct {
 
 	in *input
 
-	side     []SideItem
-	sideOpen bool
+	side        []SideItem
+	sideOpen    bool
+	statusRight string // what Options.StatusRight last said
 
 	focus int // index of the focused tool card, -1 for none
 	frame int // spinner
@@ -81,7 +82,7 @@ type (
 	eventMsg struct{ ev agent.Event }
 	turnMsg  struct{ err error }
 	tickMsg  struct{}
-	sideTick struct{}
+	pollTick struct{}
 )
 
 // New builds the terminal over an agent.
@@ -130,6 +131,9 @@ func New(a agent.Agent, opts Options) *Model {
 	if opts.Side != nil {
 		m.side = opts.Side()
 		m.sideOpen = true
+	}
+	if opts.StatusRight != nil {
+		m.statusRight = opts.StatusRight()
 	}
 	return m
 }
@@ -216,8 +220,8 @@ func (m *Model) Init() tea.Cmd {
 	if m.opts.Notices != nil {
 		cmds = append(cmds, m.pumpNotices())
 	}
-	if m.opts.Side != nil {
-		cmds = append(cmds, tea.Tick(m.opts.SideRefresh, func(time.Time) tea.Msg { return sideTick{} }))
+	if m.opts.Side != nil || m.opts.StatusRight != nil {
+		cmds = append(cmds, tea.Tick(m.opts.SideRefresh, func(time.Time) tea.Msg { return pollTick{} }))
 	}
 	return tea.Batch(cmds...)
 }
@@ -279,9 +283,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, cmd
 
-	case sideTick:
-		m.pollSide()
-		return m, tea.Tick(m.opts.SideRefresh, func(time.Time) tea.Msg { return sideTick{} })
+	case pollTick:
+		m.poll()
+		return m, tea.Tick(m.opts.SideRefresh, func(time.Time) tea.Msg { return pollTick{} })
 
 	case eventMsg:
 		m.apply(msg.ev)
@@ -293,7 +297,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the agent said has already been folded in.
 		m.finish(msg.err)
 		m.refresh()
-		return m, tea.Batch(m.waitEvent(), m.pollSideCmd())
+		return m, tea.Batch(m.waitEvent(), m.pollCmd())
 
 	case noteMsg:
 		m.add(&entry{kind: entryNotice, text: msg.text})
@@ -323,7 +327,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case refreshMsg:
-		m.pollSide()
+		m.poll()
 		return m, nil
 
 	case tea.MouseMsg:
@@ -782,14 +786,20 @@ func (m *Model) sideWidth() int {
 	return clamp(m.opts.SideWidth, 16, m.width/3)
 }
 
-func (m *Model) pollSide() {
+// poll asks the application for everything it draws on a timer: the
+// rail, and its line on the status bar. Both are read on the UI
+// goroutine, so both are cheap by contract.
+func (m *Model) poll() {
 	if m.opts.Side != nil {
 		m.side = m.opts.Side()
 	}
+	if m.opts.StatusRight != nil {
+		m.statusRight = m.opts.StatusRight()
+	}
 }
 
-func (m *Model) pollSideCmd() tea.Cmd {
-	if m.opts.Side == nil {
+func (m *Model) pollCmd() tea.Cmd {
+	if m.opts.Side == nil && m.opts.StatusRight == nil {
 		return nil
 	}
 	return Refresh()
@@ -885,7 +895,8 @@ func (m *Model) View() string {
 }
 
 // statusLine is who is answering, on what, in which conversation, and
-// whether they are busy — then whatever hints still fit.
+// whether they are busy — then, on the right, whatever the application
+// wanted there, and whatever hints still fit before it.
 func (m *Model) statusLine() string {
 	left := m.opts.Name
 	if m.opts.Model != "" {
@@ -900,7 +911,18 @@ func (m *Model) statusLine() string {
 	if t := m.totals(); t != "" {
 		left += " · " + t
 	}
-	right := m.hints()
+	// The application's line holds the right edge; the hints go in
+	// front of it when there is room for both. Hints are a reminder
+	// and /help has all of them, so they are what goes.
+	right := m.statusRight
+	if hints := m.hints(); hints != "" {
+		switch {
+		case right == "":
+			right = hints
+		case m.width-lipgloss.Width(left)-lipgloss.Width(hints)-lipgloss.Width(right)-5 >= 1:
+			right = hints + " · " + right
+		}
+	}
 	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if pad < 1 {
 		return ansi.Truncate(m.st.statusbar.Render(left), max(m.width, 1), "…")
