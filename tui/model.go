@@ -85,15 +85,31 @@ type (
 )
 
 // New builds the terminal over an agent.
+//
+// It decides the markdown style here, once, from the renderer and the
+// environment — see resolveStyle. Nothing after this asks the terminal
+// anything, which is why New has to be called before whatever is going
+// to own stdin does: Run does exactly that.
 func New(a agent.Agent, opts Options) *Model {
 	opts.fill()
 	st := newStyles(opts.Renderer, *opts.Palette)
+	profile := opts.Renderer.ColorProfile()
+	style := resolveStyle(opts.Palette.Markdown, profile)
+	// Glamour is not the only one who asks: every lipgloss
+	// AdaptiveColor asks too, the first time it is drawn, and bubbles'
+	// textarea is made of them. Answering here — once, from the same
+	// decision the markdown style came from — is what keeps the
+	// question off the wire for good; lipgloss remembers an answer it
+	// was given and never asks again.
+	dark := darkBackground(style)
+	opts.Renderer.SetHasDarkBackground(dark)
+	lipgloss.SetHasDarkBackground(dark)
 	m := &Model{
 		agent:        a,
 		opts:         opts,
 		r:            opts.Renderer,
 		st:           st,
-		md:           newMarkdown(opts.Palette.Markdown, opts.Renderer.ColorProfile()),
+		md:           newMarkdown(style, profile),
 		conversation: opts.Conversation,
 		vp:           viewport.New(0, 0),
 		follow:       true,

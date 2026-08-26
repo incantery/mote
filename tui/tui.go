@@ -110,6 +110,15 @@ func (o *Options) fill() {
 }
 
 // Run puts the terminal on the screen and returns when it closes.
+//
+// New comes first, deliberately: it settles what colour the terminal
+// is before anything owns stdin, so that nothing has to ask afterwards.
+// One question is still asked, and it is not ours — bubbletea v1 asks
+// the terminal for its background in its own package init, before main
+// runs, which nothing in this process can get in front of. A terminal
+// that answers answers in microseconds; one that never answers costs
+// termenv's five-second timeout, once, before the first frame. It is
+// gone in bubbletea v2.
 func Run(a agent.Agent, opts Options) error {
 	m := New(a, opts)
 	var popts []tea.ProgramOption
