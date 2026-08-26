@@ -30,6 +30,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "mote: "+err.Error())
 			os.Exit(1)
 		}
+	case "mcp":
+		if err := mcpCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "mote: "+err.Error())
+			os.Exit(1)
+		}
 	case "sessions":
 		if err := sessions(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "mote: "+err.Error())
@@ -59,6 +64,10 @@ usage:
         for a reply.
   mote sessions [-dir <path>]
         the conversations on disk, most recently said to first.
+  mote mcp ls <profile> [-timeout <d>]
+        the MCP servers a profile's mcp.toml declares, connected, and
+        every tool they offer under the name the model will see and a
+        policy rule has to be written against.
   mote version
 
 Conversations live under $XDG_STATE_HOME/mote/sessions, or
