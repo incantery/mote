@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -47,7 +48,9 @@ func glyph(s State) string {
 
 // renderSide draws the rail: one item as two lines, a marker on the
 // current one, states carrying the colour. Nothing here scrolls — a
-// rail that needs scrolling is a list, and a list wants its own pane.
+// rail that needs scrolling is a list, and a list wants its own pane —
+// but it says what it could not show. Four tasks and four of nine have
+// to look different, or a person reads a short rail as a quiet fleet.
 func (m *Model) renderSide(w, h int) string {
 	inner := w - 2
 	if inner < 8 {
@@ -63,7 +66,15 @@ func (m *Model) renderSide(w, h int) string {
 	if len(m.side) == 0 {
 		lines = append(lines, m.st.dim.Render("nothing here"))
 	}
-	for _, it := range m.side {
+
+	// Two lines an item, and the last line held back for the count as
+	// soon as there is more than there is room for.
+	room := max(h-len(lines), 0)
+	shown := len(m.side)
+	if shown*2 > room {
+		shown = max((room-1)/2, 0)
+	}
+	for _, it := range m.side[:shown] {
 		mark := "  "
 		if it.Current {
 			mark = "▸ "
@@ -81,9 +92,9 @@ func (m *Model) renderSide(w, h int) string {
 			sub = it.ID + " · " + sub
 		}
 		lines = append(lines, m.st.dim.Render("    "+ansi.Truncate(oneLine(sub), inner-4, "…")))
-		if len(lines) >= h {
-			break
-		}
+	}
+	if n := len(m.side) - shown; n > 0 {
+		lines = append(lines, m.st.dim.Render(fmt.Sprintf("  +%d more", n)))
 	}
 	if len(lines) > h {
 		lines = lines[:h]

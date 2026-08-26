@@ -33,6 +33,10 @@ is another. A profile is a directory a person can read.
 1. The TUI, behind an interface, with vera's chat as the first client.
 2. Sessions on disk, tools that stream their output, and what a turn
    cost.
+3. What driving Vera's chat on it turned up: nothing asks the terminal
+   a question, markdown at the width it was given, a rail that says
+   what it dropped, a notice that can be about a thing, and a line of
+   the application's own on the status bar.
 
 Read `GAPS.md` for what the loop of building it through Vera turned
 up, and how each gap was classified.

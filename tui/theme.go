@@ -24,8 +24,10 @@ type Palette struct {
 	Done    lipgloss.TerminalColor
 	Failed  lipgloss.TerminalColor
 
-	// Markdown is the glamour style name: auto, dark, light, ascii,
-	// notty, or any other glamour standard style.
+	// Markdown is the glamour style name: dark, light, ascii, notty, or
+	// any other glamour standard style. "auto" means decide it, once,
+	// before the program starts — and without asking the terminal,
+	// which is a question it may never answer. See resolveStyle.
 	Markdown string
 }
 

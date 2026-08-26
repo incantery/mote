@@ -7,7 +7,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
+	"github.com/muesli/termenv"
 )
 
 const reply = `## the seam
@@ -63,6 +65,29 @@ func withScene(t *testing.T, w, h int, opts Options) *Model {
 	step(m, kmsg("w"), kmsg("h"), kmsg("y"), kmsg("?"), kmsg("enter"))
 	step(m, conversation()...)
 	return m
+}
+
+// A line that fits its window stays on one line — at the width it
+// actually needs, not four columns wider. Glamour spends two columns
+// on a document margin, keeps two in reserve, and pads every inline
+// code span with a space either side; a greeting that was one sentence
+// long broke in the middle of itself because of it.
+func TestMarkdownUsesTheWholeWidth(t *testing.T) {
+	const line = "say something, or `/` for commands — `/help` has the keys, " +
+		"and the rail on the right is every task."
+	for _, style := range []string{"ascii", "dark", "light", "notty"} {
+		t.Run(style, func(t *testing.T) {
+			md := newMarkdown(style, termenv.ANSI256)
+			wide := md.render(line, 200, false)
+			if strings.Contains(wide, "\n") {
+				t.Fatalf("200 columns was not enough for one sentence:\n%s", wide)
+			}
+			w := lipglossWidth(strings.TrimRight(ansi.Strip(wide), " "))
+			if got := md.render(line, w, false); strings.Contains(got, "\n") {
+				t.Errorf("at %d columns — its own width — it wrapped:\n%s", w, ansi.Strip(got))
+			}
+		})
+	}
 }
 
 // The transcript has to be right at the widths people actually use.
@@ -161,6 +186,53 @@ func TestResize(t *testing.T) {
 	if b := m.transcript(); a != b {
 		t.Error("transcript differs after a round trip through another width")
 	}
+}
+
+// tasks is a fleet of n, for a rail that has to say what it dropped.
+func tasks(n int) []SideItem {
+	titles := []string{"build mote's first milestone", "tool registry with policy",
+		"session on disk, resumable", "anthropic-native provider", "mcp, as a tool source",
+		"the rail says what it dropped", "a notice with an identity", "cost, per provider",
+		"publish the module"}
+	states := []State{Working, Idle, Blocked, Done, Failed}
+	out := make([]SideItem, 0, n)
+	for i := range n {
+		out = append(out, SideItem{
+			ID:       fmt.Sprintf("%08x", 0x184a1100+i*0x9e37),
+			Title:    titles[i%len(titles)],
+			Subtitle: "mote",
+			State:    states[i%len(states)],
+			Current:  i == 0,
+		})
+	}
+	return out
+}
+
+// A rail with more in it than there is room for says how much more.
+// "Four tasks" and "four of nine" are different situations and a
+// person acts on them differently.
+func TestSideSaysWhatDidNotFit(t *testing.T) {
+	items := tasks(9)
+	m := plain(t, 120, 30, Options{Name: "mote", Side: func() []SideItem { return items }, SideTitle: "fleet"})
+
+	// Room for the title, the rule and four items, and one line left
+	// over for the count.
+	rail := m.renderSide(32, 11)
+	if !strings.Contains(rail, "+5 more") {
+		t.Errorf("the rail dropped five tasks without saying so:\n%s", rail)
+	}
+	if strings.Contains(rail, items[4].Title) {
+		t.Errorf("the fifth task should not have fitted:\n%s", rail)
+	}
+	if n := len(strings.Split(rail, "\n")); n != 11 {
+		t.Errorf("the rail is %d lines, want 11", n)
+	}
+
+	// Given the room, it says nothing about what did not fit.
+	if rail := m.renderSide(32, 30); strings.Contains(rail, "more") {
+		t.Errorf("everything fitted; the rail should not be counting:\n%s", rail)
+	}
+	golden(t, "rail-32x11.txt", m.renderSide(32, 11))
 }
 
 // The rail is a rail: it appears on the right, and it goes away when

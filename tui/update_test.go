@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -308,20 +309,109 @@ func TestApplicationMessages(t *testing.T) {
 	}
 }
 
-// Options.Side is polled, and what it returns is what the rail shows.
-func TestSidePolling(t *testing.T) {
-	n := 0
-	m := plain(t, 120, 30, Options{Name: "mote", Side: func() []SideItem {
-		n++
-		return []SideItem{{ID: "x", Title: "poll " + strings.Repeat("!", n), State: Working}}
-	}})
-	step(m, sideTick{})
+// Options.Side and Options.StatusRight are polled on the same tick,
+// and what they return is what the screen shows.
+func TestPolling(t *testing.T) {
+	n, focus := 0, 0
+	m := plain(t, 120, 30, Options{
+		Name: "mote",
+		Side: func() []SideItem {
+			n++
+			return []SideItem{{ID: "x", Title: "poll " + strings.Repeat("!", n), State: Working}}
+		},
+		StatusRight: func() string {
+			focus++
+			return fmt.Sprintf("Ghostty · window %d", focus)
+		},
+	})
+	if !strings.Contains(m.statusLine(), "window 1") {
+		t.Fatalf("the status line was not asked at all: %q", m.statusLine())
+	}
+	step(m, pollTick{})
 	if !strings.Contains(m.View(), "poll !!") {
 		t.Fatalf("the rail did not repoll; calls=%d", n)
+	}
+	if !strings.Contains(m.statusLine(), "window 2") {
+		t.Fatalf("the status line did not follow: %q", m.statusLine())
+	}
+	// Both of them are on the right, the hints in front of the
+	// application's line, and the whole thing still fits.
+	line := m.statusLine()
+	if strings.Index(line, "/help") > strings.Index(line, "Ghostty") {
+		t.Errorf("the hints should come before the application's line: %q", line)
+	}
+	if w := lipglossWidth(line); w > 120 {
+		t.Errorf("the status line is %d wide, want at most 120: %q", w, line)
+	}
+	// No room for both: the hints are the ones that go.
+	step(m, tea.WindowSizeMsg{Width: 55, Height: 24})
+	if line := m.statusLine(); !strings.Contains(line, "Ghostty") || strings.Contains(line, "/help") {
+		t.Errorf("at 55 columns the hints should have gone, not the line: %q", line)
 	}
 }
 
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// The conversation id is not write-only: an application that called
+// Run hears about it, and one that embedded the Model can read it.
+func TestConversationIsReadable(t *testing.T) {
+	var heard []string
+	m := plain(t, 100, 30, Options{
+		Name: "mote", Conversation: "demo-1",
+		OnConversation: func(id string) { heard = append(heard, id) },
+	})
+	if m.Conversation() != "demo-1" {
+		t.Fatalf("Conversation() = %q", m.Conversation())
+	}
+	if len(heard) != 0 {
+		t.Fatalf("the application chose demo-1; it does not need telling: %q", heard)
+	}
+	step(m, SetConversation("demo-2")())
+	if m.Conversation() != "demo-2" {
+		t.Fatalf("Conversation() = %q", m.Conversation())
+	}
+	// The same id twice is not a change.
+	step(m, SetConversation("demo-2")())
+	if len(heard) != 1 || heard[0] != "demo-2" {
+		t.Fatalf("heard %q, want one demo-2", heard)
+	}
+}
+
+// A task that changed four times is one line saying where it got to,
+// not four lines saying how. A notice with no name is a moment and
+// keeps its place.
+func TestANoticeWithANameKeepsOneLine(t *testing.T) {
+	m := plain(t, 100, 30, Options{Name: "mote"})
+	step(m, events(
+		agent.About("184a1100", "184a1100 is working — build mote's first milestone"),
+		agent.Notice("something else happened"),
+		agent.About("c41f9a02", "c41f9a02 is idle — tool registry"),
+	)...)
+	// Drawn once, so the lines are in the cache the replacement has to
+	// get past.
+	m.transcript()
+	step(m, events(
+		agent.About("184a1100", "184a1100 is blocked — build mote's first milestone"),
+		agent.About("184a1100", "184a1100 is done — build mote's first milestone"),
+	)...)
+	if got := kinds(m); len(got) != 3 {
+		t.Fatalf("%d entries, want three: %v", len(got), got)
+	}
+	if got := m.entries[0].text; !strings.Contains(got, "is done") {
+		t.Errorf("the first line should have caught up: %q", got)
+	}
+	if got := m.entries[1].text; got != "something else happened" {
+		t.Errorf("the nameless notice moved: %q", got)
+	}
+	text := m.transcript()
+	if strings.Contains(text, "is working") || strings.Contains(text, "is blocked") {
+		t.Errorf("the transcript kept what the task used to be:\n%s", text)
+	}
+	// It says it where it said it before, not at the bottom.
+	if strings.Index(text, "184a1100") > strings.Index(text, "something else") {
+		t.Errorf("the replaced line jumped to the end:\n%s", text)
+	}
 }

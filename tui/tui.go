@@ -26,6 +26,14 @@ type Options struct {
 	// Conversation is the id passed to every Send. The application can
 	// change it later with SetConversation.
 	Conversation string
+	// OnConversation is told the id whenever it changes — which is to
+	// say whenever a SetConversation lands, because the terminal never
+	// picks one itself. It is how an application that called Run
+	// learns what /new decided; one that embedded the Model can read
+	// Model.Conversation instead. It is called on the UI goroutine, so
+	// keep the id and get out. Nothing calls it for Conversation
+	// above: the application chose that one.
+	OnConversation func(string)
 
 	// Side supplies the rail on the right. It is called on a timer and
 	// after every exchange, on the UI goroutine, so it must be quick —
@@ -38,8 +46,18 @@ type Options struct {
 	// SideMinWidth is the window width below which the rail hides
 	// however it was toggled. Default 100.
 	SideMinWidth int
-	// SideRefresh is how often Side is called. Default 2s.
+	// SideRefresh is how often Side and StatusRight are called.
+	// Default 2s.
 	SideRefresh time.Duration
+
+	// StatusRight is one line's worth of the application's own text,
+	// on the right of the status line: what the person is looking at,
+	// how many runs are in flight — whatever is true all the time
+	// rather than worth a notice. It is called on the same timer as
+	// Side and under the same rule: on the UI goroutine, so read a
+	// cached value and get out. The terminal's key hints go before it
+	// when there is room and are dropped when there is not.
+	StatusRight func() string
 
 	// Commands are offered as completion when the person types "/".
 	Commands []Command
@@ -110,6 +128,15 @@ func (o *Options) fill() {
 }
 
 // Run puts the terminal on the screen and returns when it closes.
+//
+// New comes first, deliberately: it settles what colour the terminal
+// is before anything owns stdin, so that nothing has to ask afterwards.
+// One question is still asked, and it is not ours — bubbletea v1 asks
+// the terminal for its background in its own package init, before main
+// runs, which nothing in this process can get in front of. A terminal
+// that answers answers in microseconds; one that never answers costs
+// termenv's five-second timeout, once, before the first frame. It is
+// gone in bubbletea v2.
 func Run(a agent.Agent, opts Options) error {
 	m := New(a, opts)
 	var popts []tea.ProgramOption

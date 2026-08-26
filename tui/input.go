@@ -42,11 +42,23 @@ func newInput(st styles, placeholder string) *input {
 	ta.CharLimit = 0
 	ta.MaxHeight = inputHeight
 	ta.SetHeight(1)
-	ta.FocusedStyle.CursorLine = st.text
+	// Every one of the textarea's own styles, because the ones it
+	// ships are lipgloss AdaptiveColor and an AdaptiveColor asks the
+	// terminal what colour it is the first time it is drawn — through
+	// lipgloss's package-level renderer, which is not the one the
+	// Palette was resolved against. The Palette is meant to be the
+	// whole of the terminal's colour; this is the rest of it.
+	for _, sty := range []*textarea.Style{&ta.FocusedStyle, &ta.BlurredStyle} {
+		sty.Base = st.text
+		sty.CursorLine = st.text
+		sty.CursorLineNumber = st.dim
+		sty.EndOfBuffer = st.dim
+		sty.LineNumber = st.dim
+		sty.Placeholder = st.dim
+		sty.Text = st.text
+		sty.Prompt = st.dim
+	}
 	ta.FocusedStyle.Prompt = st.user
-	ta.BlurredStyle.Prompt = st.dim
-	ta.FocusedStyle.Placeholder = st.dim
-	ta.BlurredStyle.Placeholder = st.dim
 	// enter sends; a newline is the deliberate one.
 	ta.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("alt+enter", "shift+enter", "ctrl+j"),

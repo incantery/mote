@@ -1,20 +1,20 @@
 › why?
 
-  ## the seam                                                                                                                                                                                         
-                                                                                                                                                                                                      
-  A harness is a loop over a model with tools. The pieces:                                                                                                                                            
-                                                                                                                                                                                                      
-  • agent — the loop, and this seam                                                                                                                                                                   
-  • tui — the terminal                                                                                                                                                                                
-                                                                                                                                                                                                      
-    type Agent interface {                                                                                                                                                                            
-    	Send(ctx context.Context, conversation, text string) (<-chan Event, error)                                                                                                                        
-    }                                                                                                                                                                                                 
-                                                                                                                                                                                                      
-   agent                                                          | where                                                          | transport                                                        
-  ----------------------------------------------------------------|----------------------------------------------------------------|----------------------------------------------------------------  
-   demo                                                           | here                                                           | a channel                                                        
-   vera                                                           | verad                                                          | HTTP                                                             
+## the seam                                                                                                                                                                                             
+                                                                                                                                                                                                        
+A harness is a loop over a model with tools. The pieces:                                                                                                                                                
+                                                                                                                                                                                                        
+• agent — the loop, and this seam                                                                                                                                                                       
+• tui — the terminal                                                                                                                                                                                    
+                                                                                                                                                                                                        
+  type Agent interface {                                                                                                                                                                                
+  	Send(ctx context.Context, conversation, text string) (<-chan Event, error)                                                                                                                            
+  }                                                                                                                                                                                                     
+                                                                                                                                                                                                        
+ agent                                                            | where                                                           | transport                                                         
+------------------------------------------------------------------|-----------------------------------------------------------------|-----------------------------------------------------------------  
+ demo                                                             | here                                                            | a channel                                                         
+ vera                                                             | verad                                                           | HTTP                                                              
 
   ▸ ✓ read_file  path=README.md limit=200                                                                                                                                                 1.42s  $0.0021
 
@@ -22,6 +22,6 @@
 
   ▸ ✓ shell  cmd=go test ./... -race                                                                                                                                                      9.84s  $0.0007
 
-  Read it. The first milestone is the terminal.                                                                                                                                                       
+Read it. The first milestone is the terminal.                                                                                                                                                           
 
 ✗ upstream: 429 rate limited — retry in 12s
