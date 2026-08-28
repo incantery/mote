@@ -96,6 +96,7 @@ func demo(args []string) error {
 		Greeting:       greeting(sess, repo, from, scratch),
 		Side:           f.snapshot,
 		SideTitle:      "fleet",
+		Timestamps:     true,
 		StatusRight:    f.summary,
 		OnConversation: here.set,
 		Notices:        notices,
@@ -106,6 +107,7 @@ func demo(args []string) error {
 			{Name: "new", Help: "a fresh conversation, in its own file"},
 			{Name: "sessions", Help: "the conversations on disk"},
 			{Name: "policy", Help: "the profile's rules, as the file says them"},
+			{Name: "registers", Help: "one of everything the transcript can say"},
 			{Name: "quit", Help: "leave"},
 		},
 		Handle: func(name, args string) tea.Cmd {
@@ -161,12 +163,39 @@ func demo(args []string) error {
 				return tui.Note("%s", strings.TrimRight(b.String(), "\n"))
 			case "policy":
 				return tui.Show(policyText(prof, from))
+			case "registers":
+				// What a command printed, in both of its shapes, and
+				// then a failure — one after another so that a person
+				// can see they do not look alike. Sequence, not
+				// Batch: the point is the order.
+				return tea.Sequence(
+					tui.Note("a note is dim, like something that happened elsewhere"),
+					tui.Note("two of them in a row are one aside, not two paragraphs"),
+					tui.Show(registerBlock(sdir)),
+					tui.Fail("and an error is red, on one line — verad: 502 from /fleet"),
+				)
 			case "quit":
 				return tea.Quit
 			}
 			return tui.Fail("unknown command /%s — /help", name)
 		},
 	})
+}
+
+// registerBlock is what /registers hands over: a block that came from
+// a command rather than from the agent, which is the whole of what
+// its gutter is saying.
+func registerBlock(sdir string) string {
+	return "## the registers\n\n" +
+		"| register | what it is | how it reads |\n| --- | --- | --- |\n" +
+		"| you | your turn | warm, in the margin |\n" +
+		"| reply | the model's prose | full width, ordinary weight |\n" +
+		"| tool | a call | one sentence closed, `ctrl+o` for the rest |\n" +
+		"| event | a notice from outside | dim, indented, grouped |\n" +
+		"| result | what a command printed | this block, and a note |\n" +
+		"| error | a failure | red, one line |\n\n" +
+		"This one came from `/registers`, not from the agent — which is " +
+		"what the gutter down the left is for. Conversations are in `" + sdir + "`.\n"
 }
 
 func newConversation() string { return "demo-" + time.Now().Format("20060102-150405") }
@@ -284,12 +313,20 @@ func greeting(sess *session.Session, repo, from, scratch string) string {
 		"`/policy` prints the rules.\n\n" +
 		"This is the terminal, over a scripted agent. Say anything and it " +
 		"answers; the turns cycle through **markdown**, a **tool round**, a " +
-		"**long command streaming its output**, and an **error** — or say a " +
-		"line with `tool`, `test` or `error` in it to pick one.\n\n" +
+		"**long command streaming its output**, an **error**, and a " +
+		"**burst of notices** from the fleet — or say a line with `tool`, " +
+		"`test`, `error` or `fleet` in it to pick one.\n\n" +
+		"Everything in the transcript is in one of six registers and none " +
+		"of them looks like another: **you**, the **reply**, a **tool** " +
+		"card, an **event** from outside the exchange, a **result** a " +
+		"command printed, and an **error**. `/registers` prints one of " +
+		"each, and a rule with the time on it opens every exchange.\n\n" +
 		"`ctrl+o` opens the last tool card · `tab` walks the cards · " +
 		"`ctrl+t` hides the rail · `/help` for the rest.\n\n" +
 		"The rail is longer than most windows and says `+N more` for the " +
-		"rest — `/start <brief>` adds another. Each task says " +
+		"rest — `/start <brief>` adds another. A `◆` on it is a task " +
+		"waiting on **you**: a scout that is done and whose report nobody " +
+		"has read is done, and it still wants you. Each task says " +
 		"what it is doing on **its own line**, which it rewrites rather " +
 		"than repeating. The right of the status line is the fleet in a " +
 		"phrase, refreshed with the rail. `/new` moves the conversation " +
@@ -318,26 +355,30 @@ func seed() []tui.SideItem {
 	rows := []struct {
 		id, title string
 		state     tui.State
+		needs     bool
 	}{
-		{"184a1100", "build mote's first milestone", tui.Working},
-		{"c41f9a02", "tool registry with policy", tui.Idle},
-		{"7b20e5d9", "session on disk, resumable", tui.Blocked},
-		{"0f3c8811", "anthropic-native provider", tui.Done},
-		{"3d97ea44", "mcp, as a source of tools", tui.Idle},
-		{"5c118f6b", "the rail says what it dropped", tui.Working},
-		{"aa02d517", "a notice with an identity", tui.Done},
-		{"6e4b3390", "cost as a receipt, not a number", tui.Idle},
-		{"91cc7d28", "publish the module", tui.Blocked},
-		{"b7f4a061", "mote dump <id>, without the terminal", tui.Idle},
-		{"2e59c8d3", "prune a conversation that grew forever", tui.Idle},
-		{"c803be15", "verad's run id, for reattaching", tui.Blocked},
-		{"48d1607a", "a status per milestone, from the pane", tui.Failed},
-		{"f6a2934c", "os.UserStateDir, when Go ships it", tui.Idle},
+		{"184a1100", "build mote's first milestone", tui.Working, false},
+		{"c41f9a02", "tool registry with policy", tui.Idle, false},
+		{"7b20e5d9", "session on disk, resumable", tui.Blocked, true},
+		// Done, and its report has never been read: a tick would say
+		// there is nothing here for you, and there is.
+		{"0f3c8811", "anthropic-native provider", tui.Done, true},
+		{"3d97ea44", "mcp, as a source of tools", tui.Idle, false},
+		{"5c118f6b", "the rail says what it dropped", tui.Working, false},
+		{"aa02d517", "a notice with an identity", tui.Done, false},
+		{"6e4b3390", "cost as a receipt, not a number", tui.Idle, false},
+		{"91cc7d28", "publish the module", tui.Blocked, false},
+		{"b7f4a061", "mote dump <id>, without the terminal", tui.Idle, false},
+		{"2e59c8d3", "prune a conversation that grew forever", tui.Idle, false},
+		{"c803be15", "verad's run id, for reattaching", tui.Blocked, false},
+		{"48d1607a", "a status per milestone, from the pane", tui.Failed, false},
+		{"f6a2934c", "os.UserStateDir, when Go ships it", tui.Idle, false},
 	}
 	out := make([]tui.SideItem, 0, len(rows))
 	for i, r := range rows {
 		out = append(out, tui.SideItem{
-			ID: r.id, Title: r.title, Subtitle: "mote", State: r.state, Current: i == 0,
+			ID: r.id, Title: r.title, Subtitle: "mote", State: r.state,
+			Current: i == 0, Needs: r.needs,
 		})
 	}
 	return out

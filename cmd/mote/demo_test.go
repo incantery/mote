@@ -86,6 +86,73 @@ func TestDemoShowsTheLot(t *testing.T) {
 	}
 }
 
+// A task waiting on the person is on the rail as one, and not as a
+// tick: the demo seeds a scout that is done and whose report nobody
+// has read, because that is the case a tick gets wrong.
+func TestDemoRailSaysWhatWantsYou(t *testing.T) {
+	var needs []tui.SideItem
+	for _, it := range seed() {
+		if it.Needs {
+			needs = append(needs, it)
+		}
+	}
+	if len(needs) == 0 {
+		t.Fatal("nothing on the demo's rail is waiting on anybody")
+	}
+	var done bool
+	for _, it := range needs {
+		done = done || it.State == tui.Done
+	}
+	if !done {
+		t.Error("the case worth showing is the one that is done and still wants you")
+	}
+	m, _ := screen(t, 120, 30)
+	side := rail(view(m))
+	if !strings.Contains(side, "◆") || !strings.Contains(side, "needs you") {
+		t.Errorf("the rail does not say what wants you:\n%s", side)
+	}
+	if strings.Contains(side, "✓ "+needs[0].Title) {
+		t.Errorf("a task that wants you was drawn as a tick:\n%s", side)
+	}
+}
+
+// The card sentence is the harness's job: it has the call, the
+// checkout and the words for both. The terminal only ever had JSON.
+func TestDemoCallsSayWhatTheyAreDoing(t *testing.T) {
+	for _, c := range []struct {
+		call call
+		want string
+	}{
+		{call{tool: "read", args: map[string]any{"path": "/src/mote/GAPS.md"}}, "read GAPS.md"},
+		{call{tool: "run", args: map[string]any{"command": "git status --short"}}, "ran git status --short"},
+		{call{tool: "write", args: map[string]any{"path": "/tmp/x/a.md"}}, "wrote /tmp/x/a.md"},
+		{call{tool: "room", args: map[string]any{"action": "open", "what": "the mcp milestone"}},
+			"open — the mcp milestone"},
+	} {
+		if got := says(c.call, "/src/mote"); got != c.want {
+			t.Errorf("says(%s) = %q, want %q", c.call.tool, got, c.want)
+		}
+	}
+	// Every call in the round has one, or the demo shows the fallback
+	// where it meant to show the sentence.
+	r := &round{repo: "/src/mote", scratch: "/tmp/scratch"}
+	for _, c := range r.script() {
+		if says(c, r.repo) == "" {
+			t.Errorf("the %s call has nothing to say for itself", c.tool)
+		}
+	}
+}
+
+// What /registers prints names every one of them.
+func TestDemoRegistersBlockNamesThemAll(t *testing.T) {
+	block := registerBlock("/tmp/sessions")
+	for _, want := range []string{"you", "reply", "tool", "event", "result", "error"} {
+		if !strings.Contains(block, "| "+want+" |") {
+			t.Errorf("/registers does not name the %s register:\n%s", want, block)
+		}
+	}
+}
+
 // The demo's notices are about tasks, so a task that changes four
 // times keeps one line in the transcript.
 func TestDemoNoticesAreAboutTasks(t *testing.T) {

@@ -98,6 +98,18 @@ func TestFakeScenes(t *testing.T) {
 		}
 	})
 
+	t.Run("notices", func(t *testing.T) {
+		evs := send(t, &Fake{Instant: true}, "what did the fleet do?")
+		if n := kinds(evs)[KindNotice]; n < 3 {
+			t.Fatalf("want a burst of notices, got %d", n)
+		}
+		for _, e := range evs {
+			if e.Kind == KindNotice && e.ID == "" {
+				t.Errorf("a notice about a task with no task: %+v", e)
+			}
+		}
+	})
+
 	t.Run("tools", func(t *testing.T) {
 		evs := send(t, &Fake{Instant: true}, "run a tool for me")
 		k := kinds(evs)
@@ -284,7 +296,7 @@ func TestFakeAnswerNobodyWaitsFor(t *testing.T) {
 func TestFakeCyclesScenes(t *testing.T) {
 	f := &Fake{Instant: true}
 	seen := map[Kind]bool{}
-	for range 5 {
+	for range 6 {
 		for _, ev := range send(t, f, "hello") {
 			seen[ev.Kind] = true
 		}
@@ -292,7 +304,7 @@ func TestFakeCyclesScenes(t *testing.T) {
 	for _, k := range []Kind{KindDelta, KindStatus, KindToolCall, KindToolOutput,
 		KindToolResult, KindAsk, KindNotice, KindError, KindDone} {
 		if !seen[k] {
-			t.Fatalf("five turns never produced a %s", k)
+			t.Fatalf("six turns never produced a %s", k)
 		}
 	}
 }

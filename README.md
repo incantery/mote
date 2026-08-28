@@ -36,9 +36,10 @@ is another. A profile is a directory a person can read.
 - `session` — the record on disk (Vera's journal is the seed): one
   file per conversation, jsonl, append-only, holding what the terminal
   needs to redraw a transcript exactly.
-- `tui` — the terminal: streaming markdown, tool calls as cards,
-  a side pane, a status line, a real input. Driven through one
-  interface so any agent — local, or Vera over HTTP — sits behind it.
+- `tui` — the terminal: streaming markdown, tool calls as cards, a
+  side pane, a status line, a real input, and six registers so that
+  none of them reads like another. Driven through one interface so any
+  agent — local, or Vera over HTTP — sits behind it.
 - `cmd/mote` — the harness alone, with a profile directory.
 
 ## Milestones
@@ -61,6 +62,56 @@ is another. A profile is a directory a person can read.
 8. MCP, and what the first harness asked of the tool package: a run
    handle, `Result.Meta`, rules that key on an argument, tools the
    harness owns.
+9. Registers: six things a transcript can say, and none of them
+   looking like another.
+
+## The transcript
+
+Everything in the transcript is in one of six registers, and no two of
+them look alike:
+
+| register | what it is | how it reads |
+| --- | --- | --- |
+| you | the person's turn | warm, bold, in the margin |
+| reply | the model's prose | full width, ordinary weight |
+| tool | a call | one sentence closed, `ctrl+o` for args and result |
+| event | a notice from outside the exchange | dim, indented, consecutive ones grouped |
+| result | what a command printed | `Note` dim like an event, `Show` down its own gutter |
+| error | a failure | red, one line |
+
+An exchange — what was said, what came back, and every card opened on
+the way — is one block with single spacing inside it, and a thin rule
+is the only thing that separates two of them. `Options.Timestamps`
+puts the time on that rule.
+
+A closed tool card is a sentence, not a dump of arguments:
+
+```
+▸ ✓ fleet · started a ship task in vera → 05a40191 · 473ms
+```
+
+The sentence is `agent.Event.Summary`, which the harness fills in
+because the harness is the only one who can — the terminal has the
+JSON and nothing else. `Call(id, name, args).WithSummary("…")` puts
+one on, on the call or on its result; without one the terminal reads
+the argument values in the order they were written.
+
+The colour is still ANSI 1–6 and 8, so it reads on a light terminal
+and a dark one without asking which: warm for the person, cool for the
+tool and its machinery, dim for what happened elsewhere, red for what
+failed. `Palette` names each of them (`Tool`, `Event`, `Result`,
+`Rule`, `Needs`) and every one has a default.
+
+On the rail, `SideItem.Needs` marks an item that is waiting on the
+person. It cuts across the states rather than being one: a scout that
+is done and whose report nobody has read is done, and it still wants
+you, so it draws as `◆` and not as a tick.
+
+The status line is the fixed facts on the left — name, model,
+conversation, what the turn spent — and the application's own line on
+the right. When the window is too narrow for both, the application's
+text is cut before anything on the left, and the cost is the last
+thing standing.
 
 ## Tools, policy, the ask
 
@@ -313,6 +364,7 @@ carrying each provider's own `Raw` back without reading it.
 
 ```
 go run ./cmd/mote demo        # the terminal, over a scripted agent
+                              # /registers prints one of each
 go run ./cmd/mote sessions    # the conversations it left behind
 go run ./cmd/mote demo -c <id>  # reopen one
 go run ./cmd/mote mcp ls <profile>  # its MCP servers, and their tools

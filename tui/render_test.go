@@ -99,6 +99,50 @@ func TestTranscriptGolden(t *testing.T) {
 	}
 }
 
+// The registers, in one transcript: two exchanges with a rule between
+// them, a card the agent summarized in its own words, a burst of
+// notices grouped into one aside, what a command printed, an error,
+// and the reply still arriving with a cursor at the end of it. If any
+// two of these ever look the same, this golden says so.
+func TestRegistersGolden(t *testing.T) {
+	m := plain(t, 100, 44, Options{
+		Name: "mote", Model: "fake-1", Conversation: "demo-1", Timestamps: true,
+	})
+	typeIn(m, "what happened while I was out?")
+	step(m, kmsg("enter"))
+	step(m, events(
+		agent.Delta("Three things, and one of them wants you.\n"),
+		agent.Call("c1", "fleet", `{"verb":"start","repo":"vera","brief":"ship the price table"}`).
+			WithSummary("started a ship task in vera → 05a40191"),
+		agent.Result("c1", "05a40191 started", 473*time.Millisecond, 0),
+		agent.Notice("05a40191 is working — ship the price table"),
+		agent.Notice("c41f9a02 finished — /report c41f9a02"),
+		agent.Notice("7b20e5d9 needs you — a question on the tool registry"),
+		agent.Delta("The scout is done and nobody has read it.\n"),
+		agent.Spent(0.0041, 8210, 190),
+	)...)
+	step(m, Note("dumped → /tmp/mote-2026-08-28.tar.gz")())
+	step(m, Show("## report — c41f9a02\n\nThe seam is one method. `mote demo` shows it.\n")())
+	step(m, Fail("verad: 502 from /fleet — retrying")())
+	typeIn(m, "read it to me")
+	step(m, kmsg("enter"))
+	step(m, events(agent.Delta("It says the seam is one method"))...)
+
+	// The clock is the one thing in here nobody can pin, so it is
+	// pinned: what the golden is for is the shape of the rule, not
+	// what time it was.
+	at := time.Date(2026, 8, 28, 14, 3, 0, 0, time.UTC)
+	for _, e := range m.entries {
+		if e.kind == entryUser {
+			e.at = at
+			e.invalidate()
+			at = at.Add(90 * time.Second)
+		}
+	}
+	m.resetStable()
+	golden(t, "registers.txt", m.transcript())
+}
+
 // Mid-flight: a running card with its spinner, a status line, and the
 // reply arriving under it — including a code fence that is still open.
 func TestStreamingGolden(t *testing.T) {
@@ -113,6 +157,31 @@ func TestStreamingGolden(t *testing.T) {
 		agent.Status("searching"),
 	)...)
 	golden(t, "streaming.txt", m.transcript())
+}
+
+// The cursor at the end of a reply that is still arriving never
+// pushes a line past the window, however long the last word was.
+func TestStreamCursorStaysInsideTheWindow(t *testing.T) {
+	for _, w := range []int{40, 61, 80} {
+		m := plain(t, w, 20, Options{Name: "mote"})
+		step(m, kmsg("h"), kmsg("i"), kmsg("enter"))
+		m.inflight = true
+		step(m, events(agent.Delta(strings.Repeat("word ", 60)))...)
+		out := ansi.Strip(m.transcript())
+		if !strings.Contains(out, "▍") {
+			t.Fatalf("%d: nothing says the reply is still arriving:\n%s", w, out)
+		}
+		for i, l := range strings.Split(out, "\n") {
+			if got := lipglossWidth(l); got > w {
+				t.Errorf("%d columns: line %d is %d wide: %q", w, i, got, l)
+			}
+		}
+		// And it goes when the reply does.
+		step(m, events(agent.Done())...)
+		if strings.Contains(ansi.Strip(m.transcript()), "▍") {
+			t.Errorf("%d: the cursor outlived the reply", w)
+		}
+	}
 }
 
 // An expanded card shows the arguments and a window on the result.
@@ -233,6 +302,32 @@ func TestSideSaysWhatDidNotFit(t *testing.T) {
 		t.Errorf("everything fitted; the rail should not be counting:\n%s", rail)
 	}
 	golden(t, "rail-32x11.txt", m.renderSide(32, 11))
+}
+
+// An item waiting on the person does not look like one that is done.
+// A scout whose report nobody has read is finished and still wants
+// you, and a tick says the opposite.
+func TestRailSaysWhichOnesNeedYou(t *testing.T) {
+	items := []SideItem{
+		{ID: "0f3c8811", Title: "anthropic provider", Subtitle: "mote", State: Done},
+		{ID: "c41f9a02", Title: "tool registry with policy", Subtitle: "mote", State: Done, Needs: true},
+	}
+	m := plain(t, 120, 30, Options{Name: "mote", Side: func() []SideItem { return items }, SideTitle: "fleet"})
+	rail := ansi.Strip(m.renderSide(48, 12))
+	lines := strings.Split(rail, "\n")
+	done, needs := lines[2], lines[4]
+	if !strings.Contains(done, "✓") {
+		t.Errorf("a done task is a tick: %q", done)
+	}
+	if strings.Contains(needs, "✓") {
+		t.Errorf("a task that wants you is not a tick: %q", needs)
+	}
+	if !strings.Contains(lines[5], "needs you") {
+		t.Errorf("the rail does not say what it wants: %q", lines[5])
+	}
+	if !strings.Contains(lines[5], "done") {
+		t.Errorf("it is still done, and the rail should say so: %q", lines[5])
+	}
 }
 
 // The rail is a rail: it appears on the right, and it goes away when

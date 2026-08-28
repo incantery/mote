@@ -89,6 +89,11 @@ type Options struct {
 	// way — see Model.Init.
 	Palette *Palette
 
+	// Timestamps puts the time an exchange began on the rule above
+	// it. Off by default: a conversation you are having does not need
+	// clocking, and one you are reading back usually does.
+	Timestamps bool
+
 	// Placeholder is the ghost text in an empty input.
 	Placeholder string
 	// Greeting is markdown shown once, above the first exchange.
@@ -161,8 +166,10 @@ func Fail(format string, a ...any) tea.Cmd {
 	return func() tea.Msg { return failMsg{s} }
 }
 
-// Show puts a block of markdown in the transcript, rendered the way a
-// reply is. This is how a /report prints what it fetched.
+// Show puts a block of markdown in the transcript, down a gutter of
+// its own: what a command printed, which is neither the agent talking
+// nor a notice about the world. This is how a /report prints what it
+// fetched.
 func Show(markdown string) tea.Cmd {
 	return func() tea.Msg { return blockMsg{markdown} }
 }

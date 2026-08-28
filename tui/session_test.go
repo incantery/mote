@@ -69,6 +69,33 @@ func TestSessionRebuildsTheTranscript(t *testing.T) {
 }
 
 // The input history outlives the process, and the up arrow finds it.
+// The sentence on a card is part of the transcript, so it survives
+// the file: a reopened conversation says what the call did, not what
+// it was called with.
+func TestSessionKeepsTheCardsSentence(t *testing.T) {
+	dir := t.TempDir()
+	s := openSession(t, dir, "c")
+	m := plain(t, 100, 30, Options{Name: "mote", Session: s})
+	typeIn(m, "start one")
+	step(m, kmsg("enter"))
+	step(m, events(
+		agent.Call("c1", "fleet", `{"verb":"start","repo":"vera"}`).
+			WithSummary("started a ship task in vera → 05a40191"),
+		agent.Result("c1", "05a40191", 473*time.Millisecond, 0),
+		agent.Done(),
+	)...)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	again := openSession(t, dir, "c")
+	back := plain(t, 100, 30, Options{Name: "mote", Session: again})
+	line := firstLine(back.renderTool(back.entries[1], 100, false))
+	if !strings.Contains(line, "started a ship task in vera") {
+		t.Errorf("the reopened card lost its sentence: %q", line)
+	}
+}
+
 func TestSessionRestoresTheHistory(t *testing.T) {
 	dir := t.TempDir()
 	first := openSession(t, dir, "c")

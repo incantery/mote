@@ -21,7 +21,21 @@ const (
 	entryTool
 	entryAsk   // a question the agent stopped to ask
 	entryBlock // markdown the application put there, not the agent
+	entryShow  // what a command printed: a block, in its own gutter
 )
+
+// The registers a transcript is written in. Every entry belongs to
+// exactly one of them and looks like nothing else:
+//
+//	you     the person's turn, warm and in the margin
+//	reply   the model's prose, full width, ordinary weight
+//	tool    a card — one sentence closed, args and result open
+//	event   a notice from outside the exchange: dim, indented, grouped
+//	result  what a command printed: Note dim like an event, Show a block
+//	error   red, one line
+//
+// Which is which is the kind above; how each one reads is renderProse
+// and renderTool below.
 
 // entry is one thing in the transcript. A finished one renders once
 // per width and then holds its bytes; only a tool call still running
@@ -33,13 +47,20 @@ type entry struct {
 	id       string
 	name     string
 	args     string
+	summary  string // the sentence the agent wanted on the card, if any
 	output   string // what the tool printed as it ran
 	result   string // what it returned when it ended
 	dur      time.Duration
 	cost     float64
 	running  bool
+	started  time.Time // when the call went out, for the elapsed on a running card
 	expanded bool
 	offset   int // first body line shown, when expanded
+
+	// at is when the exchange this entry opens began. Only a user
+	// entry has one, because only a user entry opens an exchange —
+	// it is what Options.Timestamps puts on the rule above it.
+	at time.Time
 
 	// An ask's: what the person said, and whether the turn ended
 	// before they could say it.
@@ -119,13 +140,35 @@ func (m *Model) renderProse(e *entry, w int) string {
 	case entryUser:
 		return hang(m.st.user, "› ", "  ", e.text, w)
 	case entryNotice:
-		return hang(m.st.dim, "· ", "  ", e.text, w)
+		// Narrower than the reply and indented under it: a notice is
+		// the world talking over the exchange, not part of it.
+		return hang(m.st.event, "  · ", "    ", e.text, max(w-noticeInset, 20))
 	case entryError:
 		return hang(m.st.errline, "✗ ", "  ", e.text, w)
+	case entryShow:
+		return m.showBlock(e.text, w)
 	case entryReply, entryBlock:
 		return m.md.render(e.text, w, false)
 	}
 	return ""
+}
+
+// noticeInset is how much narrower than the reply a notice is drawn.
+// The gutter is two of it; the rest is so that the block reads as an
+// aside even when every line of it is short.
+const noticeInset = 8
+
+// showBlock is markdown a command printed, down its own gutter. The
+// reply is speech and takes the whole width; this is a thing handed
+// over — a report, a policy — and a person should be able to tell at
+// a glance which of the two they are reading.
+func (m *Model) showBlock(md string, w int) string {
+	body := m.md.render(md, max(w-2, 20), false)
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		lines[i] = m.st.result.Render("▏ ") + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // --- tool cards ---------------------------------------------------------
@@ -157,35 +200,47 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 		mark, mst = "✗", m.st.errline
 	}
 
-	// A running tool with something to say says how much of it there
-	// is; a finished one says what it took.
+	// The tail: what it is taking while it runs, what it took when it
+	// is over. It is the part that never gives up its room — a card
+	// whose sentence has been cut still says how long it went on for.
 	right := ""
-	if e.running {
-		if e.output != "" {
-			right = formatVolume(e.output)
+	switch {
+	case e.running:
+		right = "…"
+		if d := e.elapsed(); d >= time.Second {
+			right += " " + formatDuration(d.Round(100*time.Millisecond))
 		}
-	} else if e.stopped() {
+		if e.output != "" {
+			right += " · " + formatVolume(e.output)
+		}
+	case e.stopped():
 		right = "stopped"
-	} else {
+	default:
 		right = formatDuration(e.dur)
 		if e.cost > 0 {
-			right += "  " + formatCost(e.cost)
+			right += " · " + formatCost(e.cost)
 		}
 	}
 
+	// One line that reads like a sentence: what happened, to what,
+	// and how long it took. "✓ fleet · started a ship task in vera →
+	// 05a40191 · 473ms" — not a dump of the arguments it was called
+	// with, which is what the card holds open for anybody who wants
+	// it.
 	head := m.st.dim.Render(arrow) + " " + mst.Render(mark) + " " + m.st.tool.Render(e.name)
 	used := 1 + 1 + 1 + 1 + lipgloss.Width(e.name)
-	summary := summarizeArgs(e.args, max(8, inner-used-lipgloss.Width(right)-3))
-	if summary != "" {
-		head += "  " + m.st.toolArgs.Render(summary)
-		used += 2 + lipgloss.Width(summary)
+	if right != "" {
+		used += 3 + lipgloss.Width(right)
+	}
+	if says := e.says(max(8, inner-used-3)); says != "" {
+		// The sentence is the card, so it is written in the colour
+		// prose is written in. Everything around it — the arrow, the
+		// mark, what it took — is dim, because none of it is what a
+		// person is reading the line for.
+		head += m.st.dim.Render(" · ") + m.st.text.Render(says)
 	}
 	if right != "" {
-		pad := inner - used - lipgloss.Width(right)
-		if pad < 1 {
-			pad = 1
-		}
-		head += strings.Repeat(" ", pad) + m.st.dim.Render(right)
+		head += m.st.dim.Render(" · " + right)
 	}
 
 	lines := []string{head}
@@ -228,6 +283,25 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 	return strings.Join(lines, "\n")
 }
 
+// says is the one line a card reads as, at most width columns of it:
+// the summary the agent gave, and failing that the arguments it was
+// called with, cut down until they fit.
+func (e *entry) says(width int) string {
+	if s := oneLine(e.summary); s != "" {
+		return ansi.Truncate(s, width, "…")
+	}
+	return summarizeCall(e.args, width)
+}
+
+// elapsed is how long a running call has been running. Zero for one
+// restored from a file, which was never running here.
+func (e *entry) elapsed() time.Duration {
+	if e.started.IsZero() {
+		return 0
+	}
+	return time.Since(e.started)
+}
+
 // resultHeight is how many lines an expanded card's body has, so the
 // keys that scroll it know where the end is.
 func (e *entry) resultHeight() int {
@@ -237,6 +311,54 @@ func (e *entry) resultHeight() int {
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func spinnerFrame(i int) string { return spinner[((i%len(spinner))+len(spinner))%len(spinner)] }
+
+// summarizeCall is the fallback for a call nobody summarized: the
+// values, in the order they were written, without their keys. A tool
+// call is a verb and its object, and "README.md" is the object —
+// "path=README.md limit=200" is the wire format, which is what the
+// card holds open for. Nested values have no short form worth
+// reading, so a call made entirely of them keeps its keys instead.
+func summarizeCall(args string, width int) string {
+	vals := argValues(args)
+	if len(vals) == 0 {
+		return summarizeArgs(args, width)
+	}
+	return ansi.Truncate(strings.Join(vals, ", "), width, "…")
+}
+
+// argValues is the scalar values of a JSON object, in order.
+func argValues(args string) []string {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(args))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return nil
+	}
+	var out []string
+	for dec.More() {
+		if _, err := dec.Token(); err != nil {
+			break
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			break
+		}
+		s := strings.TrimSpace(string(raw))
+		if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
+			continue // a shape, not a word: it belongs in the open card
+		}
+		if v := shortValue(raw); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 // summarizeArgs turns a tool's JSON arguments into one line, in the
 // order the agent wrote them — a decoder walk rather than a map, so

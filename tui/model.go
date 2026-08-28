@@ -167,7 +167,7 @@ func (m *Model) setConversation(id string) {
 func (m *Model) restore() {
 	for _, t := range m.sess.Turns() {
 		if t.Said != "" {
-			m.add(&entry{kind: entryUser, text: t.Said})
+			m.add(&entry{kind: entryUser, text: t.Said, at: t.At})
 		}
 		for _, ev := range t.Events {
 			m.apply(ev)
@@ -205,12 +205,13 @@ func (m *Model) record() session.Turn {
 			// rather than asking it again of somebody who cannot
 			// answer it any more.
 			if e.cancelled {
-				t.Events = append(t.Events, agent.Asking(e.id, e.name, e.args, e.text))
+				t.Events = append(t.Events, agent.Asking(e.id, e.name, e.args, e.text).WithSummary(e.summary))
 				break
 			}
-			t.Events = append(t.Events, agent.Answered(e.id, e.name, e.args, e.text, e.answer))
+			t.Events = append(t.Events,
+				agent.Answered(e.id, e.name, e.args, e.text, e.answer).WithSummary(e.summary))
 		case entryTool:
-			t.Events = append(t.Events, agent.Call(e.id, e.name, e.args))
+			t.Events = append(t.Events, agent.Call(e.id, e.name, e.args).WithSummary(e.summary))
 			if e.output != "" {
 				t.Events = append(t.Events, agent.Output(e.id, e.output))
 			}
@@ -352,7 +353,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case blockMsg:
-		m.add(&entry{kind: entryBlock, text: msg.md})
+		m.add(&entry{kind: entryShow, text: msg.md})
 		m.refresh()
 		return m, nil
 
@@ -523,7 +524,7 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 	}
-	m.add(&entry{kind: entryUser, text: text})
+	m.add(&entry{kind: entryUser, text: text, at: time.Now()})
 	cmd := m.send(text)
 	m.refresh()
 	return m, cmd
@@ -533,7 +534,7 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 // the application claimed it.
 func (m *Model) run(name, args string) tea.Cmd {
 	if name == "help" && !m.appHandles("help") {
-		m.add(&entry{kind: entryBlock, text: m.helpText()})
+		m.add(&entry{kind: entryShow, text: m.helpText()})
 		m.refresh()
 		return nil
 	}
@@ -611,7 +612,8 @@ func (m *Model) apply(ev agent.Event) {
 		// Text before a tool call is finished text; close it off so
 		// the card lands after it and not on top of it.
 		m.commit()
-		m.add(&entry{kind: entryTool, id: ev.ID, name: ev.Name, args: ev.Args, running: true})
+		m.add(&entry{kind: entryTool, id: ev.ID, name: ev.Name, args: ev.Args,
+			summary: ev.Summary, running: true, started: time.Now()})
 		m.statusText = ""
 
 	case agent.KindToolOutput:
@@ -623,6 +625,11 @@ func (m *Model) apply(ev agent.Event) {
 	case agent.KindToolResult:
 		if e := m.openCard(ev.ID); e != nil {
 			e.result, e.dur, e.cost, e.running = ev.Result, ev.Duration, ev.Cost, false
+			// A tool that only knows what it did once it has done it
+			// says so now; one that said so up front keeps its word.
+			if ev.Summary != "" {
+				e.summary = ev.Summary
+			}
 			e.invalidate()
 		}
 		m.spend(ev.Cost, 0, 0)
@@ -936,8 +943,8 @@ func (m *Model) transcript() string {
 	}
 	var grown strings.Builder
 	for m.stableN < limit && !m.entries[m.stableN].volatile() {
+		grown.WriteString(m.between(m.stableN, w))
 		grown.WriteString(m.renderEntry(m.entries[m.stableN], w, false))
-		grown.WriteString("\n\n")
 		m.stableN++
 	}
 	m.stable += grown.String()
@@ -949,16 +956,25 @@ func (m *Model) transcript() string {
 	m.askRow, m.askSpans = -1, nil
 	row := strings.Count(m.stable, "\n")
 	for i := m.stableN; i < len(m.entries); i++ {
+		sep := m.between(i, w)
 		rendered := m.renderEntry(m.entries[i], w, i == m.focus)
+		row += strings.Count(sep, "\n")
 		if i == m.ask && m.openAsk() != nil {
 			m.askRow, m.askSpans = row+strings.Count(rendered, "\n"), askSpans()
 		}
+		b.WriteString(sep)
 		b.WriteString(rendered)
-		b.WriteString("\n\n")
-		row += strings.Count(rendered, "\n") + 3
+		row += strings.Count(rendered, "\n")
 	}
 	if m.partial != "" {
-		b.WriteString(m.md.render(m.partial, w, true))
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		// The reply is still being written, and the end of it is where
+		// the next word will land.
+		b.WriteString(m.streamCursor(m.md.render(m.partial, w, true), w))
+	}
+	if b.Len() > 0 {
 		b.WriteString("\n\n")
 	}
 	// Nothing is happening while a question is open: the card is the
@@ -971,6 +987,67 @@ func (m *Model) transcript() string {
 		b.WriteString(m.st.status.Render(spinnerFrame(m.frame) + " thinking"))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// between is what goes above the entry at index i: nothing at the top
+// of the transcript, a blank line between most things, no blank line
+// at all between one notice and the next, and a rule where one
+// exchange ends and another begins.
+//
+// It is the rhythm of the screen. An exchange — what the person said,
+// what came back, and every card that was opened on the way — is one
+// block with single spacing inside it, and the rule is the only thing
+// that ever separates two of them. Nothing is ever spaced twice.
+func (m *Model) between(i, w int) string {
+	if i == 0 {
+		// Nothing to separate — except that an exchange wearing a
+		// clock wears it at the top of the transcript too.
+		if m.opts.Timestamps && m.entries[0].kind == entryUser {
+			return m.exchangeRule(m.entries[0], w) + "\n"
+		}
+		return ""
+	}
+	prev, cur := m.entries[i-1], m.entries[i]
+	switch {
+	case cur.kind == entryUser:
+		return "\n\n" + m.exchangeRule(cur, w) + "\n"
+	case prev.kind == entryNotice && cur.kind == entryNotice:
+		return "\n" // consecutive notices are one aside, not several
+	}
+	return "\n\n"
+}
+
+// exchangeRule is the thin line an exchange opens with, with the time
+// on it when the application asked for one. Dim either way: it is
+// there to be seen out of the corner of an eye, not read.
+func (m *Model) exchangeRule(e *entry, w int) string {
+	w = max(w, 1)
+	if !m.opts.Timestamps || e.at.IsZero() {
+		return m.st.rule.Render(strings.Repeat("─", w))
+	}
+	stamp := e.at.Format("15:04")
+	fill := max(w-len(stamp)-4, 0)
+	return m.st.rule.Render("── ") + m.st.stamp.Render(stamp) +
+		m.st.rule.Render(" "+strings.Repeat("─", fill))
+}
+
+// streamCursor puts a block at the end of a reply that is still
+// arriving, so that a pause reads as a pause rather than as an
+// ending. Glamour pads its lines out to the full width, so the last
+// one is trimmed before the cursor goes on it — otherwise the frame
+// is one column wider than the window.
+func (m *Model) streamCursor(rendered string, w int) string {
+	lines := strings.Split(rendered, "\n")
+	last := len(lines) - 1
+	line := strings.TrimRight(lines[last], " ")
+	// A last line that is already the whole width gives up its final
+	// column: one character over is a wrapped line, and a wrapped
+	// line is the whole frame out by one.
+	if room := max(w-1, 0); lipgloss.Width(line) > room {
+		line = ansi.Truncate(line, room, "")
+	}
+	lines[last] = line + m.st.status.Render("▍")
+	return strings.Join(lines, "\n")
 }
 
 // View is the whole frame: the screen, and everything about the
@@ -1021,39 +1098,68 @@ func (m *Model) cursor(row int) *tea.Cursor {
 // whether they are busy — then, on the right, whatever the application
 // wanted there, and whatever hints still fit before it.
 func (m *Model) statusLine() string {
-	left := m.opts.Name
-	if m.opts.Model != "" {
-		left += " · " + m.opts.Model
-	}
-	if m.conversation != "" {
-		left += " · " + m.conversation
-	}
+	// The left is the fixed facts and gives up its room in the order
+	// a person would give it up: the conversation id, then the model,
+	// then the name. What is spent is never what goes — a number that
+	// only ever grows is the one thing on this line nobody can work
+	// out for themselves.
+	name, model, conv, state, spent := m.opts.Name, m.opts.Model, m.conversation, "", m.totals()
 	switch {
 	case m.asking():
-		left += " · waiting for you"
+		state = "waiting for you"
 	case m.inflight:
-		left += " · " + spinnerFrame(m.frame) + " working"
+		state = spinnerFrame(m.frame) + " working"
 	}
-	if t := m.totals(); t != "" {
-		left += " · " + t
+	room := max(m.width-2, 1)
+	left := ""
+	for _, facts := range [][]string{
+		{name, model, conv, state, spent},
+		{name, model, state, spent},
+		{name, state, spent},
+		{state, spent},
+		{spent},
+	} {
+		left = join(facts, " · ")
+		if lipgloss.Width(left) <= room {
+			break
+		}
 	}
-	// The application's line holds the right edge; the hints go in
-	// front of it when there is room for both. Hints are a reminder
-	// and /help has all of them, so they are what goes.
-	right := m.statusRight
+	if lipgloss.Width(left) > room {
+		return ansi.Truncate(m.st.statusbar.Render(left), max(m.width, 1), "…")
+	}
+
+	// What is left over is the application's, and the hints go in
+	// front of it when both fit. Hints are a reminder and /help has
+	// all of them, so they are the first thing to go; the
+	// application's own line is cut from its right rather than
+	// dropped, because the front of it is the part it put first.
+	rest := room - lipgloss.Width(left)
+	right := ansi.Truncate(m.statusRight, max(rest, 0), "…")
 	if hints := m.hints(); hints != "" {
 		switch {
 		case right == "":
-			right = hints
-		case m.width-lipgloss.Width(left)-lipgloss.Width(hints)-lipgloss.Width(right)-5 >= 1:
+			right = ansi.Truncate(hints, max(rest, 0), "…")
+		case lipgloss.Width(hints)+3+lipgloss.Width(right)+1 <= rest:
 			right = hints + " · " + right
 		}
 	}
 	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if pad < 1 {
-		return ansi.Truncate(m.st.statusbar.Render(left), max(m.width, 1), "…")
+		pad = 1
 	}
 	return m.st.statusbar.Render(left) + strings.Repeat(" ", pad) + m.st.hint.Render(right) + " "
+}
+
+// join is strings.Join without the empty parts, which is how a status
+// line made of things that are sometimes not there stays a sentence.
+func join(parts []string, sep string) string {
+	out := parts[:0:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 // totals is what has been spent: this turn while it runs, and the

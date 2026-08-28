@@ -58,7 +58,8 @@ func (m *Model) raise(ev agent.Event) {
 	// Two at once is not a shape this terminal has, but if it ever
 	// happens the older one is not left looking answerable.
 	m.cancelAsk(true)
-	e := &entry{kind: entryAsk, id: ev.ID, name: ev.Name, args: ev.Args, text: ev.Text}
+	e := &entry{kind: entryAsk, id: ev.ID, name: ev.Name, args: ev.Args,
+		summary: ev.Summary, text: ev.Text}
 	if ev.Result != "" {
 		// A recorded ask, replayed: it was answered once and does not
 		// get asked again.
@@ -245,7 +246,14 @@ func (m *Model) renderAsk(e *entry, w int) string {
 	case e.answer != "":
 		right = "you said " + e.answer
 	}
+	// A question keeps its arguments in front of the person by
+	// default — you are being asked to allow this call, and this call
+	// is what it says it is — but a harness that wrote a sentence for
+	// it gets to use it.
 	summary := summarizeArgs(e.args, max(8, inner-used-lipgloss.Width(right)-3))
+	if e.summary != "" {
+		summary = ansi.Truncate(oneLine(e.summary), max(8, inner-used-lipgloss.Width(right)-3), "…")
+	}
 	if summary != "" {
 		head += "  " + m.st.toolArgs.Render(summary)
 		used += 2 + lipgloss.Width(summary)
