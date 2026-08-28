@@ -205,10 +205,11 @@ func (m *Model) record() session.Turn {
 			// rather than asking it again of somebody who cannot
 			// answer it any more.
 			if e.cancelled {
-				t.Events = append(t.Events, agent.Asking(e.id, e.name, e.args, e.text))
+				t.Events = append(t.Events, agent.Asking(e.id, e.name, e.args, e.text).WithSummary(e.summary))
 				break
 			}
-			t.Events = append(t.Events, agent.Answered(e.id, e.name, e.args, e.text, e.answer))
+			t.Events = append(t.Events,
+				agent.Answered(e.id, e.name, e.args, e.text, e.answer).WithSummary(e.summary))
 		case entryTool:
 			t.Events = append(t.Events, agent.Call(e.id, e.name, e.args).WithSummary(e.summary))
 			if e.output != "" {
