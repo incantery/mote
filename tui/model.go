@@ -87,6 +87,12 @@ type Model struct {
 	askRow   int
 	askSpans []askSpan
 
+	// The card the application put up and the person is choosing
+	// from, nil when there is none. It is not an entry: a picker is
+	// the application's question, not the conversation's, so it lives
+	// above the box and leaves nothing behind.
+	pick *picker
+
 	events    chan tea.Msg
 	animating bool
 }
@@ -136,7 +142,7 @@ func New(a agent.Agent, opts Options) *Model {
 	}
 	if opts.Side != nil {
 		m.side = opts.Side()
-		m.sideOpen = true
+		m.sideOpen = !opts.SideClosed
 	}
 	if opts.StatusRight != nil {
 		m.statusRight = opts.StatusRight()
@@ -369,11 +375,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.side = msg.items
 		return m, nil
 
+	case modelMsg:
+		// The status line reads Options.Model every frame, so moving
+		// it is all there is to it.
+		m.opts.Model = msg.name
+		return m, nil
+
+	case Pick:
+		return m, m.openPick(msg)
+
 	case refreshMsg:
 		m.poll()
 		return m, nil
 
 	case tea.MouseMsg:
+		if cmd, took := m.clickPick(msg); took {
+			m.refresh()
+			return m, cmd
+		}
 		if cmd, took := m.clickAsk(msg); took {
 			m.refresh()
 			return m, cmd
@@ -387,7 +406,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.key(msg)
 	}
 
-	if m.asking() {
+	if m.asking() || m.picking() {
 		return m, nil // the box is not taking dictation
 	}
 	cmd := m.in.update(msg)
@@ -396,6 +415,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// A picker takes the keyboard first: it is the thing the person
+	// is halfway through, and a question that arrives under it waits
+	// its turn rather than stealing the keys mid-sentence.
+	if m.picking() {
+		if cmd, took := m.pickKey(msg); took {
+			m.refresh()
+			return m, cmd
+		}
+	}
 	// A question takes the keyboard until it is answered.
 	if m.asking() {
 		if cmd, took := m.askKey(msg); took {
@@ -878,7 +906,8 @@ func (m *Model) layout() {
 	if !m.ready {
 		return
 	}
-	chrome := 1 /*rule*/ + m.in.height() + 1 /*status*/ + len(m.renderSuggestions(m.width))
+	chrome := 1 /*rule*/ + m.in.height() + 1 /*status*/ +
+		len(m.renderSuggestions(m.width)) + m.pickHeight()
 	h := max(m.height-chrome, 3)
 	w := max(m.width-m.sideWidth(), 20)
 	m.in.ta.SetWidth(max(m.width-2, 20))
@@ -1069,6 +1098,11 @@ func (m *Model) View() tea.View {
 	}
 	suggestions := m.renderSuggestions(m.width)
 	parts := []string{body}
+	if m.pick != nil {
+		lines, _ := m.pickLines(m.width)
+		parts = append(parts, "")
+		parts = append(parts, lines...)
+	}
 	parts = append(parts, suggestions...)
 	parts = append(parts, m.st.rule.Render(strings.Repeat("─", max(m.width, 1))))
 	parts = append(parts, m.in.ta.View())
@@ -1076,7 +1110,7 @@ func (m *Model) View() tea.View {
 	v.SetContent(strings.Join(parts, "\n"))
 	// The box starts under the transcript, the completion list and the
 	// rule — every one of which is a known number of lines.
-	v.Cursor = m.cursor(m.vp.Height() + len(suggestions) + 1)
+	v.Cursor = m.cursor(m.vp.Height() + m.pickHeight() + len(suggestions) + 1)
 	return v
 }
 
@@ -1107,6 +1141,8 @@ func (m *Model) statusLine() string {
 	switch {
 	case m.asking():
 		state = "waiting for you"
+	case m.picking():
+		state = "choosing"
 	case m.inflight:
 		state = spinnerFrame(m.frame) + " working"
 	}
@@ -1182,6 +1218,11 @@ func (m *Model) totals() string {
 }
 
 func (m *Model) hints() string {
+	if m.picking() {
+		// The card is directly above the box and says its own keys;
+		// saying them twice is one line of noise.
+		return ""
+	}
 	if m.asking() {
 		return askHint()
 	}
@@ -1215,6 +1256,7 @@ func (m *Model) helpText() string {
 		{"ctrl+l", "back to the tail"},
 		{"ctrl+t, f2", "the side pane"},
 		{"y / n / a", "answer a question — yes, no, always (esc is no)"},
+		{"up/down, j/k, 1–9", "move in a picker; left/right turns its dial"},
 		{"esc", "close completion, let go of a card, stop the turn"},
 		{"ctrl+c, ctrl+d", "quit"},
 	} {

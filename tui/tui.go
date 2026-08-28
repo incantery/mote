@@ -48,6 +48,11 @@ type Options struct {
 	// SideRefresh is how often Side and StatusRight are called.
 	// Default 2s.
 	SideRefresh time.Duration
+	// SideClosed starts with the rail hidden. It is the application's
+	// opening position, not a lock: ctrl+t still shows it. An
+	// application whose rail is a detail rather than the point of the
+	// screen wants this.
+	SideClosed bool
 
 	// StatusRight is one line's worth of the application's own text,
 	// on the right of the status line: what the person is looking at,
@@ -152,6 +157,7 @@ type (
 	sessionMsg struct{ s *session.Session }
 	sideMsg    struct{ items []SideItem }
 	refreshMsg struct{}
+	modelMsg   struct{ name string }
 )
 
 // Note puts a dim line in the transcript.
@@ -187,6 +193,13 @@ func SetConversation(id string) tea.Cmd {
 // not unhappen it.
 func SetSession(s *session.Session) tea.Cmd {
 	return func() tea.Msg { return sessionMsg{s} }
+}
+
+// SetModel changes the model named on the status line. Options.Model
+// is where it starts; this is how it moves — an application whose
+// person just chose another one in a picker says so with this.
+func SetModel(name string) tea.Cmd {
+	return func() tea.Msg { return modelMsg{name} }
 }
 
 // SetSide replaces the rail now, without waiting for the next poll.

@@ -68,6 +68,15 @@ func runCmd(m *Model, cmd tea.Cmd) {
 		if msg == nil {
 			return
 		}
+		// A batch is a message bubbletea takes apart itself, so a test
+		// standing in for the program has to take it apart too — an
+		// application's OnPick hands one back.
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			for _, c := range batch {
+				runCmd(m, c)
+			}
+			return
+		}
 		_, cmd = m.Update(msg)
 	}
 }

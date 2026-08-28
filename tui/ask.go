@@ -92,7 +92,9 @@ func (m *Model) answer(choice string) tea.Cmd {
 	e.answer = choice
 	m.touch(m.ask)
 	m.ask = -1
-	m.in.enable(true)
+	// A picker over the question still has the keyboard; answering
+	// underneath it does not hand the box back early.
+	m.in.enable(!m.picking())
 	m.refresh()
 
 	a, ok := m.agent.(agent.Answerer)
@@ -124,7 +126,7 @@ func (m *Model) cancelAsk(tell bool) {
 	e.answer, e.cancelled = agent.No, true
 	m.touch(m.ask)
 	m.ask = -1
-	m.in.enable(true)
+	m.in.enable(!m.picking())
 	if !tell {
 		return
 	}

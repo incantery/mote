@@ -1,0 +1,8 @@
+Select model
+Switch models. Your pick becomes the default for new conversations.
+
+  1. gpt-5.6-luna   via openai · effort none only
+› 2. gpt-5 ✓        via openai
+  3. claude-opus-5  via anthropic
+● effort: medium   ←/→ to adjust
+Enter to set as default · s this conversation only · Esc to cancel
