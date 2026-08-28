@@ -166,7 +166,8 @@ func (f *Fake) play(ctx context.Context, ch chan<- Event, steps []Step) bool {
 // DefaultScript picks a scene. A word in the text wins — "error" or
 // "fail" for the failure, "test", "build" or "stream" for the tool
 // that talks while it runs, "policy" or "permission" for the one that
-// stops and asks, "tool" or "run" for the tool round — and otherwise
+// stops and asks, "notice" or "fleet" for the burst from outside,
+// "tool" or "run" for the tool round — and otherwise
 // the turns cycle, so that ten seconds of typing anything at all
 // shows the whole vocabulary.
 func DefaultScript(turn int, conversation, text string) []Step {
@@ -177,10 +178,12 @@ func DefaultScript(turn int, conversation, text string) []Step {
 		return StreamScene(text)
 	case strings.Contains(low, "policy"), strings.Contains(low, "permission"):
 		return AskScene(text)
+	case strings.Contains(low, "notice"), strings.Contains(low, "fleet"):
+		return NoticeScene(text)
 	case strings.Contains(low, "tool"), strings.Contains(low, "run"):
 		return ToolScene(text)
 	}
-	switch turn % 5 {
+	switch turn % 6 {
 	case 1:
 		return ToolScene(text)
 	case 2:
@@ -189,6 +192,8 @@ func DefaultScript(turn int, conversation, text string) []Step {
 		return StreamScene(text)
 	case 4:
 		return AskScene(text)
+	case 5:
+		return NoticeScene(text)
 	}
 	return MarkdownScene(text)
 }
@@ -210,12 +215,15 @@ func ToolScene(text string) []Step {
 	steps := []Step{
 		{After: 180 * time.Millisecond, Event: Status("looking at the repository")},
 		{After: 350 * time.Millisecond, Event: Call("call_1", "read_file",
-			`{"path":"README.md","limit":200}`)},
+			`{"path":"README.md","limit":200}`).
+			WithSummary("read the first 200 lines of README.md")},
 		{After: 250 * time.Millisecond, Event: Status("reading README.md")},
 		{After: 900 * time.Millisecond, Event: Result("call_1", readFileResult,
 			1420*time.Millisecond, 0.0021)},
 		{After: 200 * time.Millisecond, Event: Notice("task 184a1100 finished — /report 184a1100")},
-		{After: 300 * time.Millisecond, Event: Call("call_2", "grep", `{"pattern":"func Send","glob":"**/*.go"}`)},
+		{After: 300 * time.Millisecond, Event: Call("call_2", "grep",
+			`{"pattern":"func Send","glob":"**/*.go"}`).
+			WithSummary("searched every .go file for func Send")},
 		{After: 700 * time.Millisecond, Event: Result("call_2", grepResult, 310*time.Millisecond, 0.0004)},
 		{After: 250 * time.Millisecond, Event: Status("writing it up")},
 	}
@@ -230,7 +238,8 @@ func StreamScene(text string) []Step {
 	steps := []Step{
 		{After: 180 * time.Millisecond, Event: Status("running the tests")},
 		{After: 300 * time.Millisecond, Event: Call("call_1", "shell",
-			`{"cmd":"go test ./... -race","dir":"/src/mote"}`)},
+			`{"cmd":"go test ./... -race","dir":"/src/mote"}`).
+			WithSummary("ran the tests under -race")},
 	}
 	for _, l := range strings.SplitAfter(testOutput, "\n") {
 		if l == "" {
@@ -283,6 +292,29 @@ func answered(choice string) []Step {
 		reply = alwaysReply
 	}
 	return append(steps, stream(reply, 250*time.Millisecond, 40*time.Millisecond)...)
+}
+
+// NoticeScene is the world talking over an exchange: a short answer
+// with a burst of notices landing in the middle of it, each about a
+// different task. It is the case the transcript has to keep separate
+// — three things that happened elsewhere are not three things the
+// model said, and they belong together rather than one per paragraph.
+func NoticeScene(text string) []Step {
+	steps := []Step{
+		{After: 180 * time.Millisecond, Event: Status("catching up")},
+	}
+	steps = append(steps, stream(noticeReply, 300*time.Millisecond, 40*time.Millisecond)...)
+	steps = append(steps,
+		Step{After: 400 * time.Millisecond, Event: About("05a40191",
+			"05a40191 is working — ship the price table")},
+		Step{After: 120 * time.Millisecond, Event: About("c41f9a02",
+			"c41f9a02 finished — /report c41f9a02")},
+		Step{After: 120 * time.Millisecond, Event: About("7b20e5d9",
+			"7b20e5d9 needs you — a question on the tool registry")},
+		Step{After: 200 * time.Millisecond, Event: Status("writing it up")},
+	)
+	steps = append(steps, stream(noticeTail, 300*time.Millisecond, 40*time.Millisecond)...)
+	return append(steps, Step{After: 150 * time.Millisecond, Event: Spent(0.0041, 8210, 190)})
 }
 
 // ErrorScene starts a reply and then fails partway, which is the shape
@@ -378,6 +410,14 @@ and ` + "`Send`" + ` is the only method either side has to agree on.
 - **tui** holds the terminal, and knows nothing about providers.
 
 Next: the ` + "`tool`" + ` registry, so a profile can say *ask* by path.
+`
+
+const noticeReply = `Three of them moved while you were away — here they
+are, as they land:
+`
+
+const noticeTail = `The scout is **done** and nobody has read it: ` + "`/report c41f9a02`" + `.
+The other one is waiting on a word from you.
 `
 
 const errorReply = `Let me look at the provider's rate limits before I

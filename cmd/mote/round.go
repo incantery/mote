@@ -41,6 +41,40 @@ type call struct {
 	why  string
 }
 
+// says is the sentence the collapsed card reads as: what this call
+// does, in the harness's own words. It is what agent.Event.Summary is
+// for, and the harness is the only one who can write it — the
+// terminal has the JSON and nothing else, and "path=/a/b/c.md
+// content=# what the poli…" is not a thing anybody reads.
+func says(c call, repo string) string {
+	arg := func(k string) string { s, _ := c.args[k].(string); return s }
+	// Under the checkout, a path is worth saying relative to it; a
+	// path anywhere else is worth saying in full.
+	where := func(p string) string {
+		if rel, err := filepath.Rel(repo, p); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+		return p
+	}
+	switch c.tool {
+	case "list":
+		return "looked in " + where(arg("dir"))
+	case "read":
+		return "read " + where(arg("path"))
+	case "search":
+		return "searched " + arg("glob") + " for " + arg("pattern")
+	case "run":
+		return "ran " + arg("command")
+	case "write":
+		return "wrote " + where(arg("path"))
+	case "delete":
+		return "removed " + where(arg("path"))
+	case "room":
+		return arg("action") + " — " + arg("what")
+	}
+	return ""
+}
+
 // pause is the demo's own timing. A round driven by a test has none:
 // the Fake's Instant flag is the switch for both halves of the demo,
 // so a test never waits for a pace that is there to be watched.
@@ -178,7 +212,7 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 			// "start a task for that" cannot be read as advice beside
 			// a write that went through.
 			told := verdict.Refused()
-			say(agent.Call(id, c.tool, string(args)))
+			say(agent.Call(id, c.tool, string(args)).WithSummary(says(c, r.repo)))
 			say(agent.Result(id, told, 0, 0))
 			notes = append(notes, note(c, verdict.Decision, "nothing was done", verdict.Reason))
 			refused = append(refused, "`"+c.tool+"` — "+told)
@@ -202,7 +236,7 @@ func (r *round) run(ctx context.Context, out chan<- agent.Event) {
 		}
 
 		// 2. Run it, streaming whatever it prints into the card.
-		say(agent.Call(id, c.tool, string(args)))
+		say(agent.Call(id, c.tool, string(args)).WithSummary(says(c, r.repo)))
 		started := time.Now()
 		res, err := t.Run(ctx, args, tool.Handle{
 			// What the tool prints, as it prints it.
