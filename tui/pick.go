@@ -316,9 +316,12 @@ func (m *Model) pickLines(w int) ([]string, []int) {
 	foot = append(foot, ansi.Truncate(m.st.dim.Render(pickHints(p)), w, "…"))
 
 	// The rows are the point of the card, so the sentence above them
-	// is what gives way when the window is too short for both.
+	// is what gives way when the window is too short for both — and it
+	// gives way while there are still a few rows to see, not once
+	// there is one left.
+	const wantRows = 3
 	room := m.pickRoom()
-	if n := room - len(foot) - 1; len(head) > max(n, 0) {
+	if n := room - len(foot) - min(len(p.Items), wantRows); len(head) > max(n, 0) {
 		head = head[:max(n, 0)]
 	}
 	rows := max(room-len(head)-len(foot), 1)
