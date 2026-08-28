@@ -78,6 +78,16 @@ type Event struct {
 	// Args is the tool's arguments as JSON (KindToolCall, KindAsk). It is a
 	// string, not a map: the terminal shows it, it does not read it.
 	Args string `json:"args,omitempty"`
+	// Summary is the one line a tool call reads as, in whatever words
+	// the harness would use out loud: "started a ship task in vera →
+	// 05a40191". The terminal puts it on the collapsed card in place
+	// of the arguments, which is the difference between a card a
+	// person reads and one they decode. Optional on KindToolCall,
+	// KindToolResult and KindAsk; a result's replaces its call's, so
+	// a tool that only knows what it did once it has done it can
+	// still say so. Empty means the terminal summarizes the arguments
+	// itself.
+	Summary string `json:"summary,omitempty"`
 	// Result is what the tool returned (KindToolResult). Often long.
 	// On a KindAsk it is the answer — "yes", "no" or "always" — which
 	// is only ever set on an ask that has already been answered: a
@@ -180,6 +190,16 @@ func Err(err error) Event {
 // Call is a tool about to run.
 func Call(id, name, args string) Event {
 	return Event{Kind: KindToolCall, ID: id, Name: name, Args: args}
+}
+
+// WithSummary is the same event with the sentence a person should
+// read on it. It is a method rather than a second set of
+// constructors: every event that can carry a summary is already made
+// by one, and Call(...).WithSummary("read the README") is the whole
+// of the addition.
+func (e Event) WithSummary(summary string) Event {
+	e.Summary = summary
+	return e
 }
 
 // Output is a piece of what a tool is printing as it runs.

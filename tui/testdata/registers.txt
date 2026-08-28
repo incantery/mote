@@ -1,0 +1,25 @@
+── 14:03 ───────────────────────────────────────────────────────────────────────────────────────────
+› what happened while I was out?
+
+Three things, and one of them wants you.                                                            
+
+  ▸ ✓ fleet · started a ship task in vera → 05a40191 · 473ms
+
+  · 05a40191 is working — ship the price table
+  · c41f9a02 finished — /report c41f9a02
+  · 7b20e5d9 needs you — a question on the tool registry
+
+The scout is done and nobody has read it.                                                           
+
+  · dumped → /tmp/mote-2026-08-28.tar.gz
+
+▏ ## report — c41f9a02                                                                              
+▏                                                                                                   
+▏ The seam is one method. mote demo shows it.                                                       
+
+✗ verad: 502 from /fleet — retrying
+
+── 14:04 ───────────────────────────────────────────────────────────────────────────────────────────
+› read it to me
+
+It says the seam is one method▍

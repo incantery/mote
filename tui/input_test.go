@@ -190,7 +190,7 @@ func TestBuiltinHelp(t *testing.T) {
 	typeIn(m, "/help")
 	step(m, kmsg("enter"))
 	last := m.entries[len(m.entries)-1]
-	if last.kind != entryBlock || !strings.Contains(last.text, "/report") {
+	if last.kind != entryShow || !strings.Contains(last.text, "/report") {
 		t.Fatalf("built-in help was %q", last.text)
 	}
 }

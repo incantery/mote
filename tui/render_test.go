@@ -99,6 +99,50 @@ func TestTranscriptGolden(t *testing.T) {
 	}
 }
 
+// The registers, in one transcript: two exchanges with a rule between
+// them, a card the agent summarized in its own words, a burst of
+// notices grouped into one aside, what a command printed, an error,
+// and the reply still arriving with a cursor at the end of it. If any
+// two of these ever look the same, this golden says so.
+func TestRegistersGolden(t *testing.T) {
+	m := plain(t, 100, 44, Options{
+		Name: "mote", Model: "fake-1", Conversation: "demo-1", Timestamps: true,
+	})
+	typeIn(m, "what happened while I was out?")
+	step(m, kmsg("enter"))
+	step(m, events(
+		agent.Delta("Three things, and one of them wants you.\n"),
+		agent.Call("c1", "fleet", `{"verb":"start","repo":"vera","brief":"ship the price table"}`).
+			WithSummary("started a ship task in vera → 05a40191"),
+		agent.Result("c1", "05a40191 started", 473*time.Millisecond, 0),
+		agent.Notice("05a40191 is working — ship the price table"),
+		agent.Notice("c41f9a02 finished — /report c41f9a02"),
+		agent.Notice("7b20e5d9 needs you — a question on the tool registry"),
+		agent.Delta("The scout is done and nobody has read it.\n"),
+		agent.Spent(0.0041, 8210, 190),
+	)...)
+	step(m, Note("dumped → /tmp/mote-2026-08-28.tar.gz")())
+	step(m, Show("## report — c41f9a02\n\nThe seam is one method. `mote demo` shows it.\n")())
+	step(m, Fail("verad: 502 from /fleet — retrying")())
+	typeIn(m, "read it to me")
+	step(m, kmsg("enter"))
+	step(m, events(agent.Delta("It says the seam is one method"))...)
+
+	// The clock is the one thing in here nobody can pin, so it is
+	// pinned: what the golden is for is the shape of the rule, not
+	// what time it was.
+	at := time.Date(2026, 8, 28, 14, 3, 0, 0, time.UTC)
+	for _, e := range m.entries {
+		if e.kind == entryUser {
+			e.at = at
+			e.invalidate()
+			at = at.Add(90 * time.Second)
+		}
+	}
+	m.resetStable()
+	golden(t, "registers.txt", m.transcript())
+}
+
 // Mid-flight: a running card with its spinner, a status line, and the
 // reply arriving under it — including a code fence that is still open.
 func TestStreamingGolden(t *testing.T) {

@@ -67,7 +67,10 @@ func TestToolRound(t *testing.T) {
 		t.Fatal("the result did not land on the card")
 	}
 	line := firstLine(m.renderTool(card, 100, false))
-	for _, want := range []string{"read_file", "path=README.md", "1.50s", "$0.0021"} {
+	// Closed, the card is a sentence: what ran, on what, for how long
+	// — the arguments as the agent wrote them are what opening it is
+	// for.
+	for _, want := range []string{"read_file", "README.md", "1.50s", "$0.0021"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("collapsed card %q is missing %q", line, want)
 		}
@@ -289,7 +292,7 @@ func TestApplicationMessages(t *testing.T) {
 		sideMsg{[]SideItem{{ID: "x", Title: "a task", State: Done}}},
 	)
 	got := kinds(m)
-	want := []entryKind{entryNotice, entryError, entryBlock}
+	want := []entryKind{entryNotice, entryError, entryShow}
 	if len(got) != len(want) {
 		t.Fatalf("entries %v", got)
 	}
