@@ -279,6 +279,32 @@ func TestSideSaysWhatDidNotFit(t *testing.T) {
 	golden(t, "rail-32x11.txt", m.renderSide(32, 11))
 }
 
+// An item waiting on the person does not look like one that is done.
+// A scout whose report nobody has read is finished and still wants
+// you, and a tick says the opposite.
+func TestRailSaysWhichOnesNeedYou(t *testing.T) {
+	items := []SideItem{
+		{ID: "0f3c8811", Title: "anthropic provider", Subtitle: "mote", State: Done},
+		{ID: "c41f9a02", Title: "tool registry with policy", Subtitle: "mote", State: Done, Needs: true},
+	}
+	m := plain(t, 120, 30, Options{Name: "mote", Side: func() []SideItem { return items }, SideTitle: "fleet"})
+	rail := ansi.Strip(m.renderSide(48, 12))
+	lines := strings.Split(rail, "\n")
+	done, needs := lines[2], lines[4]
+	if !strings.Contains(done, "✓") {
+		t.Errorf("a done task is a tick: %q", done)
+	}
+	if strings.Contains(needs, "✓") {
+		t.Errorf("a task that wants you is not a tick: %q", needs)
+	}
+	if !strings.Contains(lines[5], "needs you") {
+		t.Errorf("the rail does not say what it wants: %q", lines[5])
+	}
+	if !strings.Contains(lines[5], "done") {
+		t.Errorf("it is still done, and the rail should say so: %q", lines[5])
+	}
+}
+
 // The rail is a rail: it appears on the right, and it goes away when
 // the window is too narrow to deserve it.
 func TestSidePane(t *testing.T) {

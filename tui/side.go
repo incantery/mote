@@ -30,9 +30,24 @@ type SideItem struct {
 	State    State
 	// Current marks the one the person is on, if any.
 	Current bool
+	// Needs marks one that is waiting on the person. It is not a
+	// state, because it cuts across them: a scout that is done and
+	// whose report nobody has read is done, and it still wants you.
+	// A tick says "nothing to do here", so an item that needs you
+	// does not get one whatever state it is in.
+	Needs bool
 }
 
-func glyph(s State) string {
+// mark is the glyph and the word under it: what the item is, and
+// whether it is waiting on the person, which wins.
+func (it SideItem) mark() (glyph, word string) {
+	if it.Needs {
+		return "◆", "needs you"
+	}
+	return stateGlyph(it.State), string(it.State)
+}
+
+func stateGlyph(s State) string {
 	switch s {
 	case Working:
 		return "●"
@@ -76,18 +91,23 @@ func (m *Model) renderSide(w, h int) string {
 		shown = max((room-1)/2, 0)
 	}
 	for _, it := range m.side[:shown] {
-		mark := "  "
+		here := "  "
 		if it.Current {
-			mark = "▸ "
+			here = "▸ "
 		}
+		glyph, word := it.mark()
 		st := m.st.forState(it.State)
-		head := mark + st.Render(glyph(it.State)) + " " + m.st.text.Render(ansi.Truncate(it.Title, inner-4, "…"))
+		if it.Needs {
+			st = m.st.needs
+		}
+		head := here + st.Render(glyph) + " " + m.st.text.Render(ansi.Truncate(it.Title, inner-4, "…"))
 		lines = append(lines, head)
-		sub := it.Subtitle
-		if sub == "" {
-			sub = string(it.State)
-		} else {
-			sub = string(it.State) + " · " + sub
+		sub := word
+		if it.Needs && it.State != "" {
+			sub += " · " + string(it.State)
+		}
+		if it.Subtitle != "" {
+			sub += " · " + it.Subtitle
 		}
 		if it.ID != "" {
 			sub = it.ID + " · " + sub
