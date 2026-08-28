@@ -233,7 +233,11 @@ func (m *Model) renderTool(e *entry, w int, focused bool) string {
 		used += 3 + lipgloss.Width(right)
 	}
 	if says := e.says(max(8, inner-used-3)); says != "" {
-		head += m.st.dim.Render(" · ") + m.st.toolArgs.Render(says)
+		// The sentence is the card, so it is written in the colour
+		// prose is written in. Everything around it — the arrow, the
+		// mark, what it took — is dim, because none of it is what a
+		// person is reading the line for.
+		head += m.st.dim.Render(" · ") + m.st.text.Render(says)
 	}
 	if right != "" {
 		head += m.st.dim.Render(" · " + right)
