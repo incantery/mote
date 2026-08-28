@@ -367,6 +367,12 @@ func greeting(sess *session.Session, repo, from, scratch string) string {
 		"each, and a rule with the time on it opens every exchange.\n\n" +
 		"`ctrl+o` opens the last tool card · `tab` walks the cards · " +
 		"`ctrl+t` hides the rail · `/help` for the rest.\n\n" +
+		"`/pick` puts a **picker** above the box, the way `/model` does: " +
+		"`↑`/`↓` or `j`/`k` move, `1`–`9` jump, `←`/`→` turn the effort " +
+		"dial, `enter` sets it as the default, `s` sets it for this " +
+		"conversation, `esc` cancels. The card takes the keyboard while " +
+		"it is up and leaves nothing in the transcript when it goes — " +
+		"what it leaves is the model name on the status line, moved.\n\n" +
 		"The rail is longer than most windows and says `+N more` for the " +
 		"rest — `/start <brief>` adds another. A `◆` on it is a task " +
 		"waiting on **you**: a scout that is done and whose report nobody " +

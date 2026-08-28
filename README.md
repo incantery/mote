@@ -64,6 +64,8 @@ is another. A profile is a directory a person can read.
    harness owns.
 9. Registers: six things a transcript can say, and none of them
    looking like another.
+10. A picker: a card the application puts above the box, and a person
+    chooses from without leaving the input.
 
 ## The transcript
 
@@ -112,6 +114,64 @@ conversation, what the turn spent — and the application's own line on
 the right. When the window is too narrow for both, the application's
 text is cut before anything on the left, and the cost is the last
 thing standing.
+
+## The picker
+
+Some questions are not the agent's. Choosing a model is the
+application asking, and it is not part of the conversation — so it
+does not go in the transcript. `tui.Pick` puts a card above the box,
+takes the keyboard while it is up, and leaves nothing behind:
+
+```
+Select model
+Switch models. Your pick becomes the default for new conversations.
+
+  1. gpt-5.6-luna   via openai · effort none only
+› 2. gpt-5 ✓        via openai
+  3. claude-opus-5  via anthropic
+● effort: medium   ←/→ to adjust
+Enter to set as default · s this conversation only · Esc to cancel
+```
+
+A `Handle` returns one the way it returns anything else:
+
+```go
+return tui.Choose(tui.Pick{
+	Title:   "Select model",
+	Text:    "Switch models. Your pick becomes the default for new conversations.",
+	Items:   []tui.PickItem{{Label: "gpt-5", Detail: "via openai", Current: true}, …},
+	Current: 1,
+	Dial:    &tui.PickDial{Label: "effort", Options: []string{"none", "low", "medium", "high"}, Current: 2},
+	Actions: []tui.PickAction{{Key: "enter", Label: "set as default"},
+		{Key: "s", Label: "this conversation only"}},
+	OnPick: func(c tui.PickChoice) tea.Cmd {
+		if c.Cancelled {
+			return nil
+		}
+		return tea.Batch(tui.SetModel(models[c.Item].Label),
+			tui.Note("picked %s at %s", models[c.Item].Label, efforts[c.Dial]))
+	},
+})
+```
+
+`↑`/`↓` or `j`/`k` move, `1`–`9` jump, `←`/`→` turn the dial, a click
+lands on the row under it. Enter runs the first action and any other
+action's `Key` runs that one; `Esc` cancels, and cancelling calls
+`OnPick` too — an application that asked a question is owed an answer
+whichever way it ended. `PickChoice` carries indexes rather than
+labels, so the application looks the answer up in the list it supplied.
+
+The card takes only the rows it needs and scrolls them when the window
+is short, keeping the selection on screen; the sentence under the
+title is what gives way first. A reply still arriving keeps arriving
+behind it. A second `Pick` replaces the first — and an open ask, which
+it answers no, the way anything else that ends a question does.
+
+What a picker leaves behind is whatever the application writes.
+`tui.SetModel` moves the name on the status line (`Options.Model` is
+only where it starts), and `Options.SideClosed` starts with the rail
+hidden for an application whose rail is a detail rather than the point
+of the screen.
 
 ## Tools, policy, the ask
 
