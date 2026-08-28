@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/incantery/mote/agent"
 )
 
@@ -350,6 +351,40 @@ func TestPolling(t *testing.T) {
 	step(m, tea.WindowSizeMsg{Width: 55, Height: 24})
 	if line := m.statusLine(); !strings.Contains(line, "Ghostty") || strings.Contains(line, "/help") {
 		t.Errorf("at 55 columns the hints should have gone, not the line: %q", line)
+	}
+}
+
+// The left of the status line is the fixed facts and the right is the
+// application's. When the window is too narrow for both, the
+// application's text is cut before anything on the left, and what the
+// turn cost is the last thing standing: it is the one number nobody
+// can work out from anywhere else on the screen.
+func TestStatusLineGivesUpTheApplicationsTextFirst(t *testing.T) {
+	m := plain(t, 120, 30, Options{
+		Name: "mote", Model: "claude-opus-4-5", Conversation: "chat-20260828-140301",
+		StatusRight: func() string { return "Ghostty · window 1 · 3 blocked · 1 failed · 6 idle" },
+	})
+	typeIn(m, "what did that cost?")
+	step(m, kmsg("enter"))
+	step(m, events(agent.Spent(0.4212, 182000, 6100))...)
+	for _, w := range []int{120, 100, 80, 60, 40, 24} {
+		step(m, tea.WindowSizeMsg{Width: w, Height: 24})
+		line := ansi.Strip(m.statusLine())
+		if got := lipglossWidth(line); got > w {
+			t.Errorf("%d columns: the status line is %d wide: %q", w, got, line)
+		}
+		if !strings.Contains(line, "$0.42") {
+			t.Errorf("%d columns: the cost went before the rest did: %q", w, line)
+		}
+	}
+	// And the left keeps its facts as long as they fit: at 120 the
+	// whole of it is there, application's line and all.
+	step(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	line := ansi.Strip(m.statusLine())
+	for _, want := range []string{"mote", "claude-opus-4-5", "chat-20260828-140301", "$0.42", "Ghostty"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the status line at 120 lost %q: %q", want, line)
+		}
 	}
 }
 

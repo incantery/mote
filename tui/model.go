@@ -1090,39 +1090,68 @@ func (m *Model) cursor(row int) *tea.Cursor {
 // whether they are busy — then, on the right, whatever the application
 // wanted there, and whatever hints still fit before it.
 func (m *Model) statusLine() string {
-	left := m.opts.Name
-	if m.opts.Model != "" {
-		left += " · " + m.opts.Model
-	}
-	if m.conversation != "" {
-		left += " · " + m.conversation
-	}
+	// The left is the fixed facts and gives up its room in the order
+	// a person would give it up: the conversation id, then the model,
+	// then the name. What is spent is never what goes — a number that
+	// only ever grows is the one thing on this line nobody can work
+	// out for themselves.
+	name, model, conv, state, spent := m.opts.Name, m.opts.Model, m.conversation, "", m.totals()
 	switch {
 	case m.asking():
-		left += " · waiting for you"
+		state = "waiting for you"
 	case m.inflight:
-		left += " · " + spinnerFrame(m.frame) + " working"
+		state = spinnerFrame(m.frame) + " working"
 	}
-	if t := m.totals(); t != "" {
-		left += " · " + t
+	room := max(m.width-2, 1)
+	left := ""
+	for _, facts := range [][]string{
+		{name, model, conv, state, spent},
+		{name, model, state, spent},
+		{name, state, spent},
+		{state, spent},
+		{spent},
+	} {
+		left = join(facts, " · ")
+		if lipgloss.Width(left) <= room {
+			break
+		}
 	}
-	// The application's line holds the right edge; the hints go in
-	// front of it when there is room for both. Hints are a reminder
-	// and /help has all of them, so they are what goes.
-	right := m.statusRight
+	if lipgloss.Width(left) > room {
+		return ansi.Truncate(m.st.statusbar.Render(left), max(m.width, 1), "…")
+	}
+
+	// What is left over is the application's, and the hints go in
+	// front of it when both fit. Hints are a reminder and /help has
+	// all of them, so they are the first thing to go; the
+	// application's own line is cut from its right rather than
+	// dropped, because the front of it is the part it put first.
+	rest := room - lipgloss.Width(left)
+	right := ansi.Truncate(m.statusRight, max(rest, 0), "…")
 	if hints := m.hints(); hints != "" {
 		switch {
 		case right == "":
-			right = hints
-		case m.width-lipgloss.Width(left)-lipgloss.Width(hints)-lipgloss.Width(right)-5 >= 1:
+			right = ansi.Truncate(hints, max(rest, 0), "…")
+		case lipgloss.Width(hints)+3+lipgloss.Width(right)+1 <= rest:
 			right = hints + " · " + right
 		}
 	}
 	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if pad < 1 {
-		return ansi.Truncate(m.st.statusbar.Render(left), max(m.width, 1), "…")
+		pad = 1
 	}
 	return m.st.statusbar.Render(left) + strings.Repeat(" ", pad) + m.st.hint.Render(right) + " "
+}
+
+// join is strings.Join without the empty parts, which is how a status
+// line made of things that are sometimes not there stays a sentence.
+func join(parts []string, sep string) string {
+	out := parts[:0:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 // totals is what has been spent: this turn while it runs, and the
