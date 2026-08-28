@@ -313,8 +313,14 @@ func greeting(sess *session.Session, repo, from, scratch string) string {
 		"`/policy` prints the rules.\n\n" +
 		"This is the terminal, over a scripted agent. Say anything and it " +
 		"answers; the turns cycle through **markdown**, a **tool round**, a " +
-		"**long command streaming its output**, and an **error** — or say a " +
-		"line with `tool`, `test` or `error` in it to pick one.\n\n" +
+		"**long command streaming its output**, an **error**, and a " +
+		"**burst of notices** from the fleet — or say a line with `tool`, " +
+		"`test`, `error` or `fleet` in it to pick one.\n\n" +
+		"Everything in the transcript is in one of six registers and none " +
+		"of them looks like another: **you**, the **reply**, a **tool** " +
+		"card, an **event** from outside the exchange, a **result** a " +
+		"command printed, and an **error**. `/registers` prints one of " +
+		"each, and a rule with the time on it opens every exchange.\n\n" +
 		"`ctrl+o` opens the last tool card · `tab` walks the cards · " +
 		"`ctrl+t` hides the rail · `/help` for the rest.\n\n" +
 		"The rail is longer than most windows and says `+N more` for the " +
