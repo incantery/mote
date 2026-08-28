@@ -159,6 +159,31 @@ func TestStreamingGolden(t *testing.T) {
 	golden(t, "streaming.txt", m.transcript())
 }
 
+// The cursor at the end of a reply that is still arriving never
+// pushes a line past the window, however long the last word was.
+func TestStreamCursorStaysInsideTheWindow(t *testing.T) {
+	for _, w := range []int{40, 61, 80} {
+		m := plain(t, w, 20, Options{Name: "mote"})
+		step(m, kmsg("h"), kmsg("i"), kmsg("enter"))
+		m.inflight = true
+		step(m, events(agent.Delta(strings.Repeat("word ", 60)))...)
+		out := ansi.Strip(m.transcript())
+		if !strings.Contains(out, "▍") {
+			t.Fatalf("%d: nothing says the reply is still arriving:\n%s", w, out)
+		}
+		for i, l := range strings.Split(out, "\n") {
+			if got := lipglossWidth(l); got > w {
+				t.Errorf("%d columns: line %d is %d wide: %q", w, i, got, l)
+			}
+		}
+		// And it goes when the reply does.
+		step(m, events(agent.Done())...)
+		if strings.Contains(ansi.Strip(m.transcript()), "▍") {
+			t.Errorf("%d: the cursor outlived the reply", w)
+		}
+	}
+}
+
 // An expanded card shows the arguments and a window on the result.
 func TestExpandedCardGolden(t *testing.T) {
 	m := withScene(t, 100, 40, Options{Name: "mote", Model: "fake-1", Conversation: "demo-1"})

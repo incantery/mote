@@ -972,7 +972,7 @@ func (m *Model) transcript() string {
 		}
 		// The reply is still being written, and the end of it is where
 		// the next word will land.
-		b.WriteString(m.streamCursor(m.md.render(m.partial, w, true)))
+		b.WriteString(m.streamCursor(m.md.render(m.partial, w, true), w))
 	}
 	if b.Len() > 0 {
 		b.WriteString("\n\n")
@@ -1036,10 +1036,17 @@ func (m *Model) exchangeRule(e *entry, w int) string {
 // ending. Glamour pads its lines out to the full width, so the last
 // one is trimmed before the cursor goes on it — otherwise the frame
 // is one column wider than the window.
-func (m *Model) streamCursor(rendered string) string {
+func (m *Model) streamCursor(rendered string, w int) string {
 	lines := strings.Split(rendered, "\n")
 	last := len(lines) - 1
-	lines[last] = strings.TrimRight(lines[last], " ") + m.st.status.Render("▍")
+	line := strings.TrimRight(lines[last], " ")
+	// A last line that is already the whole width gives up its final
+	// column: one character over is a wrapped line, and a wrapped
+	// line is the whole frame out by one.
+	if room := max(w-1, 0); lipgloss.Width(line) > room {
+		line = ansi.Truncate(line, room, "")
+	}
+	lines[last] = line + m.st.status.Render("▍")
 	return strings.Join(lines, "\n")
 }
 
