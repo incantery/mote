@@ -185,3 +185,59 @@ func TestDemoFollowsTheConversation(t *testing.T) {
 		t.Fatalf("the demo did not follow the terminal: %q", here.get())
 	}
 }
+
+// /pick puts the reference card up, and choosing on it does what
+// choosing a model does: the status line's name moves, and the
+// transcript says what happened.
+func TestDemoPick(t *testing.T) {
+	m, _ := screen(t, 100, 30)
+	m.Update(modelPicker())
+	got := view(m)
+	for _, want := range []string{
+		"Select model",
+		"› 2. gpt-5 ✓",
+		"● effort: medium",
+		"Enter to set as default · s this conversation only · Esc to cancel",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the card is missing %q:\n%s", want, got)
+		}
+	}
+
+	// Down to claude-opus-5, up to high, and enter.
+	for _, k := range []tea.KeyPressMsg{
+		{Code: tea.KeyDown}, {Code: tea.KeyRight}, {Code: tea.KeyEnter},
+	} {
+		_, cmd := m.Update(k)
+		run(m, cmd)
+	}
+	got = view(m)
+	if !strings.Contains(got, "picked claude-opus-5 at high") {
+		t.Errorf("the transcript does not say what was picked:\n%s", got)
+	}
+	last := got[strings.LastIndex(got, "\n")+1:]
+	if !strings.Contains(last, "claude-opus-5") {
+		t.Errorf("the status line still says the old model: %q", last)
+	}
+	if strings.Contains(got, "Select model") {
+		t.Errorf("the card is still up:\n%s", got)
+	}
+}
+
+// run folds a command back through the terminal the way the program
+// does, batches included.
+func run(m *tui.Model, cmd tea.Cmd) {
+	for cmd != nil {
+		msg := cmd()
+		if msg == nil {
+			return
+		}
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			for _, c := range batch {
+				run(m, c)
+			}
+			return
+		}
+		_, cmd = m.Update(msg)
+	}
+}

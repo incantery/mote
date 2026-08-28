@@ -108,6 +108,7 @@ func demo(args []string) error {
 			{Name: "sessions", Help: "the conversations on disk"},
 			{Name: "policy", Help: "the profile's rules, as the file says them"},
 			{Name: "registers", Help: "one of everything the transcript can say"},
+			{Name: "pick", Help: "choose a model, the way /model does"},
 			{Name: "quit", Help: "leave"},
 		},
 		Handle: func(name, args string) tea.Cmd {
@@ -174,12 +175,55 @@ func demo(args []string) error {
 					tui.Show(registerBlock(sdir)),
 					tui.Fail("and an error is red, on one line — verad: 502 from /fleet"),
 				)
+			case "pick":
+				return tui.Choose(modelPicker())
 			case "quit":
 				return tea.Quit
 			}
 			return tui.Fail("unknown command /%s — /help", name)
 		},
 	})
+}
+
+// models is what /pick offers. The demo has no providers, so the list
+// is a list — what matters is that the card reads the way the one in
+// front of a person does.
+var models = []tui.PickItem{
+	{Label: "gpt-5.6-luna", Detail: "via openai · effort none only"},
+	{Label: "gpt-5", Detail: "via openai", Current: true},
+	{Label: "claude-opus-5", Detail: "via anthropic"},
+}
+
+// efforts is the picker's second axis.
+var efforts = []string{"none", "low", "medium", "high"}
+
+// modelPicker is /pick: the reference card, and a handler that does
+// what choosing a model does — moves the name on the status line, and
+// says so in the transcript.
+func modelPicker() tui.Pick {
+	return tui.Pick{
+		Title: "Select model",
+		Text:  "Switch models. Your pick becomes the default for new conversations.",
+		Items: models,
+		// The one in force is the one the card opens on.
+		Current: 1,
+		Dial:    &tui.PickDial{Label: "effort", Options: efforts, Current: 2},
+		Actions: []tui.PickAction{
+			{Key: "enter", Label: "set as default"},
+			{Key: "s", Label: "this conversation only"},
+		},
+		OnPick: func(c tui.PickChoice) tea.Cmd {
+			if c.Cancelled {
+				return tui.Note("kept %s", models[c.Item].Label)
+			}
+			name, effort := models[c.Item].Label, efforts[c.Dial]
+			note := tui.Note("picked %s at %s", name, effort)
+			if c.Action != "enter" {
+				note = tui.Note("picked %s at %s — this conversation only", name, effort)
+			}
+			return tea.Batch(tui.SetModel(name), note)
+		},
+	}
 }
 
 // registerBlock is what /registers hands over: a block that came from
