@@ -60,6 +60,10 @@ type Model struct {
 	total    float64
 	totalIn  int
 	totalOut int
+	// lastIn is the input tokens of the last turn that ended — near
+	// enough the size of the context the next one starts from, which
+	// is the number a person watching a long conversation wants.
+	lastIn int
 
 	// The finished transcript is rendered once and kept. stable holds
 	// the joined render of entries[:stableN] at width stableW;
@@ -184,6 +188,7 @@ func (m *Model) restore() {
 		m.cancelAsk(false)
 		m.total += t.Cost
 		m.totalIn += t.InputTokens
+		m.lastIn = t.InputTokens
 		m.totalOut += t.OutputTokens
 	}
 	m.in.load(m.sess.History())
@@ -774,6 +779,7 @@ func (m *Model) finish(err error) {
 	m.turnStart = -1
 	m.total += turn.Cost
 	m.totalIn += turn.InputTokens
+	m.lastIn = turn.InputTokens
 	m.totalOut += turn.OutputTokens
 	if m.sess != nil {
 		if err := m.sess.Append(turn); err != nil {
@@ -1220,13 +1226,16 @@ func (m *Model) statusLine() string {
 // status is everything the terminal knows about its own status line,
 // for an application that lays the line out itself.
 func (m *Model) status(name, model, conv, state, spent string) Status {
-	cost, in, out := m.total, m.totalIn, m.totalOut
+	cost, in, out, ctx := m.total, m.totalIn, m.totalOut, m.lastIn
 	if m.inflight {
 		cost, in, out = m.turnCost, m.turnIn, m.turnOut
+		if m.turnIn > 0 {
+			ctx = m.turnIn
+		}
 	}
 	return Status{
 		Name: name, Model: model, Conversation: conv, State: state,
-		Cost: cost, InputTokens: in, OutputTokens: out, Spent: spent,
+		Cost: cost, InputTokens: in, OutputTokens: out, Context: ctx, Spent: spent,
 		Right: m.statusRight,
 	}
 }

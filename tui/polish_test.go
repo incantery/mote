@@ -126,10 +126,10 @@ func TestTheApplicationLaysOutTheStatusLine(t *testing.T) {
 		StatusRight: func() string { return "3 tasks" },
 		Status: func(s Status) (string, string) {
 			seen = s
-			return s.Model, FormatCost(s.Cost) + " est · ctx " + FormatTokens(s.InputTokens) + " · " + s.Right
+			return s.Model, FormatCost(s.Cost) + " est · ctx " + FormatTokens(s.Context) + " · " + s.Right
 		},
 	})
-	m.total, m.totalIn = 0.0094, 40800
+	m.total, m.totalIn, m.lastIn = 0.0094, 61000, 40800
 	line := ansi.Strip(m.statusLine())
 	if !strings.HasPrefix(line, "fake-1") {
 		t.Errorf("the left is not the application's: %q", line)
@@ -140,7 +140,7 @@ func TestTheApplicationLaysOutTheStatusLine(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimSpace(line), "$0.0094 est · ctx 40.8k · 3 tasks") {
 		t.Errorf("the right is not the application's: %q", line)
 	}
-	if seen.Name != "mote" || seen.Conversation != "demo-1" || seen.Spent != "$0.0094 · 40.8k tok" {
+	if seen.Name != "mote" || seen.Conversation != "demo-1" || seen.Spent != "$0.0094 · 61.0k tok" || seen.Context != 40800 {
 		t.Errorf("the application was not told what the terminal knows: %+v", seen)
 	}
 	// The hints still go in front of the right when there is room.

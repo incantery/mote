@@ -169,6 +169,12 @@ type Status struct {
 	Cost         float64
 	InputTokens  int
 	OutputTokens int
+	// Context is the input tokens of the last turn that ended, or of
+	// this one once it has reported them — near enough the size of
+	// the context the next turn starts from. The totals above only
+	// grow; this is the one that says how big the conversation has
+	// got. Zero until a turn has ended.
+	Context int
 	// Spent is Cost and the tokens as the default layout writes them
 	// — "$0.0015 · 6.9k tok" — for an application that only wants to
 	// move them.
