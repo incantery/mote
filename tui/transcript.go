@@ -9,6 +9,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/incantery/mote/agent"
 )
 
 type entryKind int
@@ -66,6 +67,13 @@ type entry struct {
 	// before they could say it.
 	answer    string
 	cancelled bool
+
+	// A notice's: the colour its gutter carries, if any, and the
+	// command that opens what it is about, if there is one. A notice
+	// with an open is a card of a kind — tab reaches it, enter runs
+	// the command.
+	tone agent.Tone
+	open string
 
 	cache  string
 	cacheW int
@@ -127,22 +135,24 @@ func (m *Model) renderEntry(e *entry, w int, focused bool) string {
 		e.cache, e.cacheW, e.cacheK = out, w, key
 		return out
 	}
-	if e.cacheW == w && e.cacheK == "" {
+	key := ""
+	if e.kind == entryNotice && focused {
+		key = "focused"
+	}
+	if e.cacheW == w && e.cacheK == key {
 		return e.cache
 	}
-	out := m.renderProse(e, w)
-	e.cache, e.cacheW, e.cacheK = out, w, ""
+	out := m.renderProse(e, w, focused)
+	e.cache, e.cacheW, e.cacheK = out, w, key
 	return out
 }
 
-func (m *Model) renderProse(e *entry, w int) string {
+func (m *Model) renderProse(e *entry, w int, focused bool) string {
 	switch e.kind {
 	case entryUser:
 		return hang(m.st.user, "› ", "  ", e.text, w)
 	case entryNotice:
-		// Narrower than the reply and indented under it: a notice is
-		// the world talking over the exchange, not part of it.
-		return hang(m.st.event, "  · ", "    ", e.text, max(w-noticeInset, 20))
+		return m.renderNotice(e, w, focused)
 	case entryError:
 		return hang(m.st.errline, "✗ ", "  ", e.text, w)
 	case entryShow:
@@ -157,6 +167,32 @@ func (m *Model) renderProse(e *entry, w int) string {
 // The gutter is two of it; the rest is so that the block reads as an
 // aside even when every line of it is short.
 const noticeInset = 8
+
+// renderNotice is a notice down a gutter: narrower than the reply and
+// indented under it, because a notice is the world talking over the
+// exchange, not part of it. The gutter is a bar the whole height of
+// the block, and the bar is where the notice's one colour goes — dim
+// for a thing that happened, the Needs colour for a thing that is
+// asking, the Error colour for a thing that failed. The words stay
+// dim whatever the tone: the reference tints the gutter, and only the
+// gutter, so that red stays a shape on the margin rather than a
+// paragraph of it.
+//
+// A focused one — reached with tab because it has a command to open
+// — wears the accent instead, the same bar a focused tool card does:
+// one colour for "this is the thing the keyboard is on", everywhere.
+func (m *Model) renderNotice(e *entry, w int, focused bool) string {
+	bar := m.st.event
+	switch {
+	case focused:
+		bar = m.st.accent
+	case e.tone == agent.ToneNeeds:
+		bar = m.st.needs
+	case e.tone == agent.ToneFailed:
+		bar = m.st.errline
+	}
+	return hangBar(bar, m.st.event, "  ▏ ", "  ▏ ", e.text, max(w-noticeInset, 20))
+}
 
 // showBlock is markdown a command printed, down its own gutter. The
 // reply is speech and takes the whole width; this is a thing handed
@@ -484,21 +520,41 @@ func formatCost(c float64) string {
 // hang wraps text under a prefix, with continuation lines indented to
 // match. lipgloss wraps; it does not hang.
 func hang(st lipgloss.Style, prefix, cont, text string, w int) string {
+	return hangBar(st, st, prefix, cont, text, w)
+}
+
+// hangBar is hang with the prefix in a style of its own, which is how
+// a gutter gets a colour the words do not have.
+func hangBar(pst, st lipgloss.Style, prefix, cont, text string, w int) string {
 	inner := w - lipgloss.Width(prefix)
 	if inner < 8 {
 		inner = 8
 	}
-	wrapped := ansi.Wrap(text, inner, " -/")
+	wrapped := ansi.Wrap(text, inner, breakpoints(text))
 	var b strings.Builder
 	for i, l := range strings.Split(wrapped, "\n") {
 		if i > 0 {
-			b.WriteString("\n" + cont)
+			b.WriteString("\n" + pst.Render(cont))
 		} else {
-			b.WriteString(prefix)
+			b.WriteString(pst.Render(prefix))
 		}
-		b.WriteString(l)
+		b.WriteString(st.Render(l))
 	}
-	return st.Render(b.String())
+	return b.String()
+}
+
+// breakpoints is where a line may wrap. A space, a hyphen and a slash
+// are all fine in prose, and a slash is where a long path wants to
+// break — but a slash that begins a word is a slash command, the one
+// token on the line that must survive whole, and a line that ends in
+// "/" with "report a3f2" under it is the one thing nobody can read.
+// So a text with a word-initial slash in it wraps on spaces and
+// hyphens only; its paths, if it has any, wrap where they must.
+func breakpoints(text string) string {
+	if strings.HasPrefix(text, "/") || strings.Contains(text, " /") || strings.Contains(text, "\n/") {
+		return " -"
+	}
+	return " -/"
 }
 
 func clamp(v, lo, hi int) int { return min(max(v, lo), hi) }

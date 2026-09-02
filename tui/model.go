@@ -460,6 +460,15 @@ func (m *Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.layout()
 			return m, nil
 		}
+		// Over an empty box, enter opens the focused notice. With
+		// something typed it sends that: a message a person has
+		// written is never traded for a command they did not.
+		if m.in.empty() {
+			if cmd, took := m.openFocused(); took {
+				m.refresh()
+				return m, cmd
+			}
+		}
 		return m.submit()
 
 	case "tab":
@@ -671,11 +680,11 @@ func (m *Model) apply(ev agent.Event) {
 		// One that names a thing is that thing's line: it says where
 		// the thing got to now, in the place it said it before.
 		if e := m.noticeAbout(ev.ID); e != nil {
-			e.text = ev.Text
+			e.text, e.tone, e.open = ev.Text, ev.Tone, ev.Open
 			e.invalidate()
 			break
 		}
-		m.add(&entry{kind: entryNotice, id: ev.ID, text: ev.Text})
+		m.add(&entry{kind: entryNotice, id: ev.ID, text: ev.Text, tone: ev.Tone, open: ev.Open})
 
 	case agent.KindError:
 		m.commit()
@@ -822,14 +831,33 @@ func (m *Model) focusCard(dir int) {
 	}
 }
 
+// cards is everything tab can land on: the tool cards, and the
+// notices that carry a command to open what they are about. A notice
+// with nothing to open is not a stop — there would be nothing to do
+// there, and a key that lands somewhere it cannot act is a key that
+// teaches the person not to press it.
 func (m *Model) cards() []int {
 	var out []int
 	for i, e := range m.entries {
-		if e.kind == entryTool {
+		if e.kind == entryTool || (e.kind == entryNotice && e.open != "") {
 			out = append(out, i)
 		}
 	}
 	return out
+}
+
+// openFocused runs the focused notice's command, if the focus is on
+// one. It is what enter does over an empty box with a notice
+// focused: the ⏎ open the reference puts on a task event. The focus
+// lets go first — the command's answer is the thing to look at now.
+func (m *Model) openFocused() (tea.Cmd, bool) {
+	e := m.focused()
+	if e == nil || e.kind != entryNotice || e.open == "" {
+		return nil, false
+	}
+	m.setFocus(-1)
+	name, args, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(e.open), "/"), " ")
+	return m.run(name, strings.TrimSpace(args)), true
 }
 
 func (m *Model) setFocus(i int) {
@@ -860,6 +888,9 @@ func (m *Model) toggleCard() {
 		i = idx[len(idx)-1]
 	}
 	e := m.entries[i]
+	if e.kind != entryTool {
+		return // a notice has nothing to unfold; enter is its key
+	}
 	e.expanded = !e.expanded
 	e.offset = 0
 	e.invalidate()
@@ -906,11 +937,13 @@ func (m *Model) layout() {
 	if !m.ready {
 		return
 	}
-	chrome := 1 /*rule*/ + m.in.height() + 1 /*status*/ +
+	chrome := m.in.height() + 2 /*the box's border*/ + 1 /*status*/ +
 		len(m.renderSuggestions(m.width)) + m.pickHeight()
 	h := max(m.height-chrome, 3)
 	w := max(m.width-m.sideWidth(), 20)
-	m.in.ta.SetWidth(max(m.width-2, 20))
+	// The box is the window wide: two columns of border, two of the
+	// padding inside it.
+	m.in.ta.SetWidth(max(m.width-4, 20))
 	if m.vp.Width() == w && m.vp.Height() == h {
 		return // typing does not move anything; do not redraw the transcript
 	}
@@ -1104,14 +1137,28 @@ func (m *Model) View() tea.View {
 		parts = append(parts, lines...)
 	}
 	parts = append(parts, suggestions...)
-	parts = append(parts, m.st.rule.Render(strings.Repeat("─", max(m.width, 1))))
-	parts = append(parts, m.in.ta.View())
+	parts = append(parts, m.renderInput())
 	parts = append(parts, m.statusLine())
 	v.SetContent(strings.Join(parts, "\n"))
-	// The box starts under the transcript, the completion list and the
-	// rule — every one of which is a known number of lines.
-	v.Cursor = m.cursor(m.vp.Height() + m.pickHeight() + len(suggestions) + 1)
+	// The box starts under the transcript, the completion list and
+	// its own top border — every one of which is a known number of
+	// lines — and two columns in, past the border and the padding.
+	v.Cursor = m.cursor(m.vp.Height()+m.pickHeight()+len(suggestions)+1, 2)
 	return v
+}
+
+// renderInput is the box, in a border that says whether the keyboard
+// is in it: the accent while it is, dim while it is not — blurred
+// under a question or a picker, or lent to a card or a notice for the
+// moment. It took the place of the rule that used to sit above the
+// box; a box with an edge does not need a line to say where it
+// starts.
+func (m *Model) renderInput() string {
+	st := m.st.box
+	if m.in.ta.Focused() && m.focus < 0 {
+		st = m.st.boxFocused
+	}
+	return st.Width(max(m.width-2, 1)).Render(m.in.ta.View())
 }
 
 // cursor is the input's, moved to where the input actually is on the
@@ -1119,12 +1166,13 @@ func (m *Model) View() tea.View {
 // line the box starts on. Nil when the box is blurred, which is what
 // hides the cursor — a test that draws the screen with no one typing
 // gets a frame with no cursor in it.
-func (m *Model) cursor(row int) *tea.Cursor {
+func (m *Model) cursor(row, col int) *tea.Cursor {
 	c := m.in.ta.Cursor()
 	if c == nil {
 		return nil
 	}
 	c.Y += row
+	c.X += col
 	return c
 }
 
@@ -1148,6 +1196,12 @@ func (m *Model) statusLine() string {
 	}
 	room := max(m.width-2, 1)
 	left := ""
+	if m.opts.Status != nil {
+		// The application lays it out; the terminal fits it.
+		var right string
+		left, right = m.opts.Status(m.status(name, model, conv, state, spent))
+		return m.fitStatus(left, right, room)
+	}
 	for _, facts := range [][]string{
 		{name, model, conv, state, spent},
 		{name, model, state, spent},
@@ -1160,6 +1214,25 @@ func (m *Model) statusLine() string {
 			break
 		}
 	}
+	return m.fitStatus(left, m.statusRight, room)
+}
+
+// status is everything the terminal knows about its own status line,
+// for an application that lays the line out itself.
+func (m *Model) status(name, model, conv, state, spent string) Status {
+	cost, in, out := m.total, m.totalIn, m.totalOut
+	if m.inflight {
+		cost, in, out = m.turnCost, m.turnIn, m.turnOut
+	}
+	return Status{
+		Name: name, Model: model, Conversation: conv, State: state,
+		Cost: cost, InputTokens: in, OutputTokens: out, Spent: spent,
+		Right: m.statusRight,
+	}
+}
+
+// fitStatus is the two halves of the line put into the room there is.
+func (m *Model) fitStatus(left, right string, room int) string {
 	if lipgloss.Width(left) > room {
 		return ansi.Truncate(m.st.statusbar.Render(left), max(m.width, 1), "…")
 	}
@@ -1170,7 +1243,7 @@ func (m *Model) statusLine() string {
 	// application's own line is cut from its right rather than
 	// dropped, because the front of it is the part it put first.
 	rest := room - lipgloss.Width(left)
-	right := ansi.Truncate(m.statusRight, max(rest, 0), "…")
+	right = ansi.Truncate(right, max(rest, 0), "…")
 	if hints := m.hints(); hints != "" {
 		switch {
 		case right == "":
@@ -1227,7 +1300,10 @@ func (m *Model) hints() string {
 		return askHint()
 	}
 	if e := m.focused(); e != nil {
-		if e.expanded {
+		switch {
+		case e.kind == entryNotice:
+			return "enter open · tab next · esc unfocus"
+		case e.expanded:
 			return "ctrl+o close · pgup/pgdn result · esc unfocus"
 		}
 		return "ctrl+o open · tab next card · esc unfocus"
@@ -1250,8 +1326,9 @@ func (m *Model) helpText() string {
 		{"enter", "send"},
 		{"alt+enter, shift+enter, ctrl+j", "newline"},
 		{"up / down", "history, when the box is empty"},
-		{"tab / shift+tab", "focus a tool card (tab first accepts a completion)"},
+		{"tab / shift+tab", "focus a tool card, or a notice with something to open (tab first accepts a completion)"},
 		{"ctrl+o", "expand the focused card, or the last one"},
+		{"enter, over an empty box", "open what the focused notice is about"},
 		{"pgup / pgdn", "scroll — the focused card's result if one is open"},
 		{"ctrl+l", "back to the tail"},
 		{"ctrl+t, f2", "the side pane"},

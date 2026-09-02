@@ -226,7 +226,12 @@ func (in *input) update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// renderSuggestions draws the completion list above the box.
+// renderSuggestions draws the completion popup above the box: the
+// commands that match, the chosen one as a solid block, and one line
+// of keys — in a box of its own, drawn in the dim border so that the
+// accent border under it still says where typing goes. The lines
+// returned are the whole box, border and all, which is what the
+// layout counts.
 func (m *Model) renderSuggestions(w int) []string {
 	in := m.in
 	if !in.completing() {
@@ -236,19 +241,28 @@ func (m *Model) renderSuggestions(w int) []string {
 	for _, c := range in.sugg {
 		width = max(width, len(c.Name))
 	}
-	var out []string
+	inner := max(w-4, 8) // the border and its padding
+	var rows []string
 	for i, c := range in.sugg {
-		name := "/" + c.Name + strings.Repeat(" ", width-len(c.Name))
+		name := "/" + c.Name
 		st := m.st.suggest
-		mark := "  "
 		if i == in.sel {
-			st, mark = m.st.suggestSel, "▸ "
+			st = m.st.suggestSel
 		}
-		line := mark + st.Render(name) + "  " + m.st.dim.Render(c.Help)
-		out = append(out, ansi.Truncate(line, w, "…"))
-		if len(out) >= 8 {
+		pad := strings.Repeat(" ", width-len(c.Name))
+		line := st.Render(name) + pad + "  " + m.st.dim.Render(c.Help)
+		rows = append(rows, ansi.Truncate(line, inner, "…"))
+		if len(rows) >= 8 {
 			break
 		}
 	}
-	return out
+	rows = append(rows, ansi.Truncate(m.st.hint.Render(suggestHint), inner, "…"))
+	box := m.st.box.Width(max(w-2, 1)).Render(strings.Join(rows, "\n"))
+	return strings.Split(box, "\n")
 }
+
+// suggestHint is the popup's own line of keys. The status line's
+// hints give way to the application's text when the window is
+// narrow; these do not, because they are the keys for the thing the
+// person is in the middle of.
+const suggestHint = "↑↓ choose · ⏎ accept · esc dismiss · ⇧⏎ newline"

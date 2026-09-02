@@ -262,7 +262,7 @@ func (m *Model) clickPick(msg tea.MouseMsg) (tea.Cmd, bool) {
 // and covering the something to ask about it is no good.
 func (m *Model) pickRoom() int {
 	const keep = 3 // the transcript never goes below this
-	base := 1 /*the blank line above the card*/ + 1 /*rule*/ + m.in.height() + 1 /*status*/ + keep
+	base := 1 /*the blank line above the card*/ + m.in.height() + 2 /*the box's border*/ + 1 /*status*/ + keep
 	return max(m.height-base, 3)
 }
 

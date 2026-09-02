@@ -116,7 +116,7 @@ func TestAskDisablesTheInput(t *testing.T) {
 	if len(m.entries) != 2 {
 		t.Fatalf("enter sent something: %v", kinds(m))
 	}
-	if m.cursor(0) != nil {
+	if m.cursor(0, 0) != nil {
 		t.Fatal("a blurred box shows no cursor")
 	}
 	if !strings.Contains(ansi.Strip(m.statusLine()), "waiting for you") {

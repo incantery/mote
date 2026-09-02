@@ -215,11 +215,12 @@ func TestTheCursorIsTheTerminals(t *testing.T) {
 	if v.Cursor == nil {
 		t.Fatal("no cursor in the frame; the person cannot see where they are typing")
 	}
-	// "› " is the prompt, then five characters of "hello".
-	if v.Cursor.X != 2+len("hello") {
-		t.Errorf("cursor at column %d, want %d", v.Cursor.X, 2+len("hello"))
+	// The box's border and its padding, then "› " the prompt, then
+	// five characters of "hello".
+	if v.Cursor.X != 2+2+len("hello") {
+		t.Errorf("cursor at column %d, want %d", v.Cursor.X, 2+2+len("hello"))
 	}
-	// The box sits under the transcript and the rule.
+	// The box sits under the transcript and its own top border.
 	if want := m.vp.Height() + 1; v.Cursor.Y != want {
 		t.Errorf("cursor on line %d, want %d", v.Cursor.Y, want)
 	}
@@ -234,10 +235,11 @@ func TestTheCursorIsTheTerminals(t *testing.T) {
 	m.in.reset()
 	m.layout()
 	typeIn(m, "/re")
-	if n := len(m.renderSuggestions(100)); n != 2 {
-		t.Fatalf("%d suggestions", n)
+	// Two commands, the popup's own line of keys, and its border.
+	if n := len(m.renderSuggestions(100)); n != 2+1+2 {
+		t.Fatalf("%d lines of popup", n)
 	}
-	if v, want := m.View(), m.vp.Height()+2+1; v.Cursor.Y != want {
+	if v, want := m.View(), m.vp.Height()+5+1; v.Cursor.Y != want {
 		t.Errorf("with the list open the cursor is on line %d, want %d", v.Cursor.Y, want)
 	}
 

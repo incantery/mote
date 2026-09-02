@@ -63,6 +63,18 @@ type Options struct {
 	// when there is room and are dropped when there is not.
 	StatusRight func() string
 
+	// Status lays the status line out, when the application would
+	// rather do that itself. It is given everything the terminal
+	// knows (see Status) and returns the two halves; the terminal
+	// still fits them — the left is kept whole, the right is cut from
+	// its right, and the key hints go in front of the right when
+	// there is room. Nil is the default layout: name · model ·
+	// conversation · state · spent on the left, StatusRight on the
+	// right. An application whose line should read "gpt-5.6-luna" on
+	// the left and "$0.0094 est · ctx 40.8k" on the right, and
+	// nothing else, wants this.
+	Status func(Status) (left, right string)
+
 	// Commands are offered as completion when the person types "/".
 	Commands []Command
 	// Handle runs one. name is without the slash, args is the rest of
@@ -135,6 +147,43 @@ func (o *Options) fill() {
 		o.Palette = &p
 	}
 }
+
+// Status is what the terminal knows about the status line, handed to
+// Options.Status to lay out. Everything on it is optional and may be
+// empty or zero; the default layout drops what is empty and so should
+// any other.
+type Status struct {
+	// Name and Model are Options' — the model as moved by SetModel.
+	Name  string
+	Model string
+	// Conversation is the id exchanges are being sent under.
+	Conversation string
+	// State is what the terminal is doing that the person should
+	// know: "waiting for you" on an open question, "choosing" under a
+	// picker, a spinner and "working" while a turn runs. Empty when
+	// nothing is happening.
+	State string
+	// Cost, InputTokens and OutputTokens are what has been spent:
+	// this turn's while one runs, the whole conversation's otherwise.
+	// Zero when nobody knew a number.
+	Cost         float64
+	InputTokens  int
+	OutputTokens int
+	// Spent is Cost and the tokens as the default layout writes them
+	// — "$0.0015 · 6.9k tok" — for an application that only wants to
+	// move them.
+	Spent string
+	// Right is what StatusRight last said, if there is one.
+	Right string
+}
+
+// FormatCost is a dollar amount the way the terminal writes one:
+// cents to four places under a dollar, two above.
+func FormatCost(c float64) string { return formatCost(c) }
+
+// FormatTokens is a token count the way the terminal writes one:
+// "6.9k", "1.2M".
+func FormatTokens(n int) string { return formatTokens(n) }
 
 // Run puts the terminal on the screen and returns when it closes.
 //

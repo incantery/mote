@@ -107,7 +107,37 @@ type Event struct {
 	// provider fills them in, and one that does not leaves them.
 	InputTokens  int `json:"input_tokens,omitempty"`
 	OutputTokens int `json:"output_tokens,omitempty"`
+
+	// Tone is what kind of notice a KindNotice is, when the kind is
+	// worth a colour: a thing that is waiting on the person, or a
+	// thing that failed. The terminal tints the notice's gutter by
+	// it and nothing else — the words stay the harness's. Empty is
+	// the ordinary case: something happened, and it is neither.
+	Tone Tone `json:"tone,omitempty"`
+	// Open is the command line that opens what a KindNotice is about
+	// — "/report 1ea6a4b5" for a task that has written one. With it
+	// the notice can be reached with tab and opened with enter, the
+	// way a tool card is opened, instead of being retyped. It is the
+	// whole line, slash and arguments, exactly as the person would
+	// type it; the terminal runs it through the application's
+	// Handle like anything typed.
+	Open string `json:"open,omitempty"`
 }
+
+// Tone is the colour a notice is allowed to carry, and there are only
+// two, because the transcript has only two things to say beyond
+// "this happened": that something is asking, and that something has
+// gone wrong. Red is failure only; an ask is not a crash, and a
+// gutter that paints it like one teaches a glance to read alarm
+// where there is none.
+type Tone string
+
+const (
+	// ToneNeeds is a notice about something waiting on the person.
+	ToneNeeds Tone = "needs"
+	// ToneFailed is a notice about something that went wrong.
+	ToneFailed Tone = "failed"
+)
 
 // The three answers to an ask. They are strings rather than a type
 // because they cross a wire — a terminal over HTTP posts one — and a
@@ -199,6 +229,19 @@ func Call(id, name, args string) Event {
 // of the addition.
 func (e Event) WithSummary(summary string) Event {
 	e.Summary = summary
+	return e
+}
+
+// WithTone is the same notice with a colour on its gutter — see Tone.
+func (e Event) WithTone(t Tone) Event {
+	e.Tone = t
+	return e
+}
+
+// WithOpen is the same notice with the command that opens what it is
+// about, so that the terminal can offer it under enter.
+func (e Event) WithOpen(cmd string) Event {
+	e.Open = cmd
 	return e
 }
 

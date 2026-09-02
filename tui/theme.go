@@ -117,32 +117,42 @@ type styles struct {
 
 	suggest    lipgloss.Style
 	suggestSel lipgloss.Style
+
+	// The two borders: the box the keyboard is in, and every other
+	// box. One colour says where typing goes.
+	box        lipgloss.Style
+	boxFocused lipgloss.Style
 }
 
 func newStyles(p Palette) styles {
 	s := styles{
-		text:       lipgloss.NewStyle().Foreground(p.Text),
-		dim:        lipgloss.NewStyle().Foreground(p.Dim),
-		accent:     lipgloss.NewStyle().Foreground(p.Accent),
-		user:       lipgloss.NewStyle().Foreground(p.User).Bold(true),
-		assistant:  lipgloss.NewStyle().Foreground(p.Assistant).Bold(true),
-		status:     lipgloss.NewStyle().Foreground(p.Status).Italic(true),
-		errline:    lipgloss.NewStyle().Foreground(p.Error),
-		tool:       lipgloss.NewStyle().Foreground(p.Tool).Bold(true),
-		toolArgs:   lipgloss.NewStyle().Foreground(p.Dim),
-		focused:    lipgloss.NewStyle().Foreground(p.Accent).Bold(true),
-		rule:       lipgloss.NewStyle().Foreground(p.Rule),
-		event:      lipgloss.NewStyle().Foreground(p.Event),
-		result:     lipgloss.NewStyle().Foreground(p.Result),
-		stamp:      lipgloss.NewStyle().Foreground(p.Dim),
-		needs:      lipgloss.NewStyle().Foreground(p.Needs).Bold(true),
-		statusbar:  lipgloss.NewStyle().Foreground(p.Dim),
-		hint:       lipgloss.NewStyle().Foreground(p.Dim),
-		key:        lipgloss.NewStyle().Foreground(p.Accent),
-		sideTitle:  lipgloss.NewStyle().Foreground(p.Dim).Bold(true),
-		sideRule:   lipgloss.NewStyle().Foreground(p.Dim),
-		suggest:    lipgloss.NewStyle().Foreground(p.Text),
-		suggestSel: lipgloss.NewStyle().Foreground(p.Accent).Bold(true),
+		text:      lipgloss.NewStyle().Foreground(p.Text),
+		dim:       lipgloss.NewStyle().Foreground(p.Dim),
+		accent:    lipgloss.NewStyle().Foreground(p.Accent),
+		user:      lipgloss.NewStyle().Foreground(p.User).Bold(true),
+		assistant: lipgloss.NewStyle().Foreground(p.Assistant).Bold(true),
+		status:    lipgloss.NewStyle().Foreground(p.Status).Italic(true),
+		errline:   lipgloss.NewStyle().Foreground(p.Error),
+		tool:      lipgloss.NewStyle().Foreground(p.Tool).Bold(true),
+		toolArgs:  lipgloss.NewStyle().Foreground(p.Dim),
+		focused:   lipgloss.NewStyle().Foreground(p.Accent).Bold(true),
+		rule:      lipgloss.NewStyle().Foreground(p.Rule),
+		event:     lipgloss.NewStyle().Foreground(p.Event),
+		result:    lipgloss.NewStyle().Foreground(p.Result),
+		stamp:     lipgloss.NewStyle().Foreground(p.Dim),
+		needs:     lipgloss.NewStyle().Foreground(p.Needs).Bold(true),
+		statusbar: lipgloss.NewStyle().Foreground(p.Dim),
+		hint:      lipgloss.NewStyle().Foreground(p.Dim),
+		key:       lipgloss.NewStyle().Foreground(p.Accent),
+		sideTitle: lipgloss.NewStyle().Foreground(p.Dim).Bold(true),
+		sideRule:  lipgloss.NewStyle().Foreground(p.Dim),
+		suggest:   lipgloss.NewStyle().Foreground(p.Text),
+		// The chosen completion is a block, not a colour: reversed,
+		// so it is a shape on the line whatever the terminal makes
+		// of the accent.
+		suggestSel: lipgloss.NewStyle().Foreground(p.Accent).Reverse(true).Bold(true),
+		box:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.Dim).Padding(0, 1),
+		boxFocused: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(p.Accent).Padding(0, 1),
 	}
 	s.state = map[State]lipgloss.Style{
 		Working: lipgloss.NewStyle().Foreground(p.Working),

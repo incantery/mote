@@ -1,4 +1,3 @@
-• agent — the loop, and this seam                                               
 • tui — the terminal                                                            
                                                                                 
   type Agent interface {                                                        
@@ -12,13 +11,14 @@
                                                                                 
   ▸ ✓ read_file · README.md, 200 · 1.42s · $0.0021                              
                                                                                 
-  · task 184a1100 finished — /report 184a1100                                   
+  ▏ task 184a1100 finished — /report 184a1100                                   
                                                                                 
   ▸ ✓ shell · go test ./... -race · 9.84s · $0.0007                             
                                                                                 
 Read it. The first milestone is the terminal.                                   
                                                                                 
 ✗ upstream: 429 rate limited — retry in 12s                                     
-────────────────────────────────────────────────────────────────────────────────
-› say something, or / for commands                                            
+╭────────────────────────────────────────────────────────────────────────────╮
+│ › say something, or / for commands                                         │
+╰────────────────────────────────────────────────────────────────────────────╯
 mote · fake-1 · demo-1 · $0.0166 · 19.0k tok     enter send · tab card · /help 

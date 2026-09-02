@@ -115,17 +115,17 @@ func TestPickDrawsAboveTheInput(t *testing.T) {
 	m, _ := pickAt(t, 80, 24)
 	screen := ansi.Strip(view(m))
 	lines := strings.Split(screen, "\n")
-	title, rule := -1, -1
+	title, box := -1, -1
 	for i, l := range lines {
 		switch {
 		case strings.HasPrefix(l, "Select model"):
 			title = i
-		case strings.HasPrefix(l, "────") && rule < 0:
-			rule = i
+		case strings.HasPrefix(l, "╭───") && box < 0:
+			box = i // the top of the input's box
 		}
 	}
-	if title < 0 || rule < 0 || title > rule {
-		t.Fatalf("the card is not between the transcript and the box (title %d, rule %d):\n%s", title, rule, screen)
+	if title < 0 || box < 0 || title > box {
+		t.Fatalf("the card is not between the transcript and the box (title %d, box %d):\n%s", title, box, screen)
 	}
 	if n := len(lines); n != 24 {
 		t.Errorf("the frame is %d lines, not 24 — the card did not take them from the transcript", n)
@@ -248,7 +248,7 @@ func TestPickSwallowsTheRest(t *testing.T) {
 	if m.in.value() != "" {
 		t.Errorf("the box took %q", m.in.value())
 	}
-	if m.cursor(0) != nil {
+	if m.cursor(0, 0) != nil {
 		t.Error("a blurred box shows no cursor")
 	}
 	if p.n != 0 {
