@@ -77,7 +77,9 @@ func newInput(st styles, placeholder string) *input {
 	// already has is the one the person chose for their terminal.
 	sty.Cursor.Color = nil
 	ta.SetStyles(sty)
-	// enter sends; a newline is the deliberate one.
+	// enter sends; a newline is the deliberate one. A backslash then
+	// enter does it too, on terminals that send none of these three
+	// apart from a plain enter — see input.escapedNewline.
 	ta.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("alt+enter", "shift+enter", "ctrl+j"),
 		key.WithHelp("alt+enter", "newline"),
@@ -217,6 +219,42 @@ func (in *input) accept() bool {
 	in.setValue("/" + c.Name + " ")
 	in.sugg = nil
 	return true
+}
+
+// escapedNewline is the newline every terminal can type: a backslash,
+// then enter. alt+enter and shift+enter only reach an application on a
+// terminal that sends them apart from a plain enter, and plenty do not
+// — so the box would have no newline at all there. Two ordinary
+// keystrokes always arrive. The backslash is the instruction, not part
+// of the line, so it goes and a newline takes its place; what is left
+// is exactly what alt+enter would have left.
+func (in *input) escapedNewline() bool {
+	if !in.ta.Focused() || !in.backslashAtCursor() {
+		return false
+	}
+	in.ta, _ = in.ta.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	in.ta, _ = in.ta.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
+	in.suggest()
+	return true
+}
+
+// backslashAtCursor says whether the character the cursor sits just
+// after is a backslash. It is the cursor rather than the end of the
+// text because the sequence is about what was typed a keystroke ago,
+// which is wherever the cursor is — someone who went back to break a
+// line in the middle means it there.
+func (in *input) backslashAtCursor() bool {
+	col := in.ta.Column()
+	if col <= 0 {
+		return false
+	}
+	rows := strings.Split(in.ta.Value(), "\n")
+	row := in.ta.Line()
+	if row < 0 || row >= len(rows) {
+		return false
+	}
+	line := []rune(rows[row])
+	return col <= len(line) && line[col-1] == '\\'
 }
 
 func (in *input) update(msg tea.Msg) tea.Cmd {

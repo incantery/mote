@@ -460,6 +460,12 @@ func (m *Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
+		// A backslash a keystroke ago makes this a newline rather than
+		// a send — the one newline every terminal can type.
+		if m.in.escapedNewline() {
+			m.layout()
+			return m, nil
+		}
 		// Enter finishes a half-typed command; a whole one it runs.
 		if !m.in.exact() && m.in.accept() {
 			m.layout()
@@ -1334,6 +1340,7 @@ func (m *Model) helpText() string {
 	for _, r := range [][2]string{
 		{"enter", "send"},
 		{"alt+enter, shift+enter, ctrl+j", "newline"},
+		{"`\\` then enter", "newline, on a terminal that sends none of those"},
 		{"up / down", "history, when the box is empty"},
 		{"tab / shift+tab", "focus a tool card, or a notice with something to open (tab first accepts a completion)"},
 		{"ctrl+o", "expand the focused card, or the last one"},

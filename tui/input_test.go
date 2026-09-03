@@ -49,6 +49,60 @@ func TestInputMultiline(t *testing.T) {
 	}
 }
 
+// A backslash and then enter is the newline that reaches an
+// application through any terminal, including the ones that send
+// alt+enter and shift+enter as a plain enter. The backslash is the
+// instruction, so it is not left in the line.
+func TestInputBackslashEnterIsANewline(t *testing.T) {
+	m := box(t)
+	typeIn(m, "first\\")
+	step(m, kmsg("enter"))
+	typeIn(m, "second")
+	if got := m.in.value(); got != "first\nsecond" {
+		t.Fatalf("value %q, want the backslash gone and a newline in its place", got)
+	}
+	if m.in.height() != 2 {
+		t.Fatalf("the box should have grown to 2 lines, got %d", m.in.height())
+	}
+	if n := len(m.entries); n != 0 {
+		t.Fatalf("nothing should have been sent, transcript has %d", n)
+	}
+	// The next plain enter still sends, whole.
+	step(m, kmsg("enter"))
+	last := m.entries[len(m.entries)-1]
+	if last.kind != entryUser || last.text != "first\nsecond" {
+		t.Fatalf("the transcript got %q", last.text)
+	}
+}
+
+// The sequence is two keystrokes, not a trailing backslash anywhere in
+// the line: it is the character the cursor sits after that decides.
+func TestInputBackslashElsewhereStillSends(t *testing.T) {
+	m := box(t)
+	typeIn(m, "a\\b")
+	step(m, kmsg("enter"))
+	if m.in.value() != "" {
+		t.Fatalf("enter should have sent, left %q", m.in.value())
+	}
+	last := m.entries[len(m.entries)-1]
+	if last.kind != entryUser || last.text != "a\\b" {
+		t.Fatalf("the transcript got %q, want the backslash kept", last.text)
+	}
+}
+
+// A line broken in the middle breaks where the cursor is, not at the
+// end of the text.
+func TestInputBackslashBreaksAtTheCursor(t *testing.T) {
+	m := box(t)
+	typeIn(m, "ab")
+	step(m, kmsg("left"))
+	typeIn(m, "\\")
+	step(m, kmsg("enter"))
+	if got := m.in.value(); got != "a\nb" {
+		t.Fatalf("value %q, want the break where the cursor was", got)
+	}
+}
+
 // The box only grows so far, or it eats the transcript.
 func TestInputHeightIsCapped(t *testing.T) {
 	m := box(t)
